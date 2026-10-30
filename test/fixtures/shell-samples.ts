@@ -16,6 +16,23 @@ const rep = (n: number, f: (i: number) => string): string => Array.from({ length
 
 export const SHELL_SAMPLES: ShellSample[] = [
   {
+    name: 'vite build',
+    rule: 'vite-build',
+    tool: 'vite 7',
+    command: 'npm run build 2>&1 | tail -80',
+    output: [
+      'vite v7.1.2 building for production...',
+      'transforming...',
+      '✓ 2100 modules transformed.',
+      'rendering chunks...',
+      ...Array.from({ length: 40 }, (_, i) => `dist/assets/chunk-${String(i).padStart(3, '0')}-a1b2c3.js   ${(i + 1) * 3}.25 kB │ gzip:  ${i + 1}.10 kB`),
+      'dist/assets/index-9f8e7d.css              88.40 kB │ gzip: 14.02 kB',
+      '(!) Some chunks are larger than 500 kB after minification.',
+      '✓ built in 12.34s',
+    ].join('\n'),
+    signals: ['(!) Some chunks are larger than 500 kB after minification.', '✓ built in 12.34s', '# 41 assets (40 .js, 1 .css)', 'dist/assets/chunk-039-a1b2c3.js'],
+  },
+  {
     name: 'git diff',
     rule: 'git-diff',
     tool: 'git 2.50',

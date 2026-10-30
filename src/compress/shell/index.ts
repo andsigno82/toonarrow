@@ -1,5 +1,6 @@
 /** Deterministic, rule-based compression of shell command output: the rule registry and its entry point. */
 import { type BashCompression, type Cmd, type Rule, dedupeRuns, isCompound, normalize, parseCommand, ruleTarget, stripAnsi } from './common.ts';
+import { viteAssets } from './bundle.ts';
 import { gitDiff } from './diff.ts';
 import { cargo, jsInstall, make, pip, tsc } from './build.ts';
 import { findList, grep, lsLong } from './files.ts';
@@ -13,7 +14,7 @@ const MIN_LINES = 12;
 const MAX_RATIO = 0.8;
 
 /** Output-signature rules come first: they recognise the tool whatever wrapper ran it. */
-const RULES: Rule[] = [gitDiff, pytest, jsTestRunner, tsc, lsLong, gitStatus, gitLog, grep, findList, goTest, cargo, jsInstall, pip, make];
+const RULES: Rule[] = [gitDiff, viteAssets, pytest, jsTestRunner, tsc, lsLong, gitStatus, gitLog, grep, findList, goTest, cargo, jsInstall, pip, make];
 
 const NO_CMD: Cmd = { prog: '', sub: '', args: [] };
 
