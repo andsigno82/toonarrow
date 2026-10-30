@@ -51,7 +51,7 @@ function windowAround(text: string, pattern: string | undefined, ignoreCase: boo
   return `${start > 0 ? '…' : ''}${text.slice(start, end)}${end < text.length ? '…' : ''}`;
 }
 
-function commonDir(paths: string[]): string {
+export function commonDir(paths: string[]): string {
   if (paths.length < 2) return '';
   let prefix = paths[0]!;
   for (const p of paths) while (!p.startsWith(prefix)) prefix = prefix.slice(0, -1);

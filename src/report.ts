@@ -12,6 +12,8 @@ export interface Totals {
   /** Estimated prompt tokens removed by toonarrow, per rewrite. */
   savedSkills: number;
   savedBash: number;
+  /** Non-shell search tool results (OpenCode grep, Kora searchCode). */
+  savedTools: number;
 }
 
 export interface SessionRow extends Totals {
@@ -34,21 +36,22 @@ export interface Summary {
   clients: Array<Totals & { client: string }>;
 }
 
-const zero = (): Totals => ({ requests: 0, errors: 0, input: 0, cacheRead: 0, cacheWrite: 0, output: 0, savedSkills: 0, savedBash: 0 });
+const zero = (): Totals => ({ requests: 0, errors: 0, input: 0, cacheRead: 0, cacheWrite: 0, output: 0, savedSkills: 0, savedBash: 0, savedTools: 0 });
 
 /**
  * Prompt tokens a rewrite removed, estimated with the request's own token density: the provider counted
  * `input + cacheRead + cacheWrite` tokens for the body actually sent, so removed chars convert at the same rate.
  */
-export function savedTokens(e: LedgerEntry): { skills: number; bash: number } {
+export function savedTokens(e: LedgerEntry): { skills: number; bash: number; tools: number } {
   const skills = e.skills?.skillsCharsSaved ?? 0;
   const bash = e.compression?.bashCharsSaved ?? 0;
+  const tools = e.compression?.toolCharsSaved ?? 0;
   const u = e.usage;
   const prompt = u ? u.input + u.cacheRead + u.cacheWrite : 0;
-  const sent = e.sentBytes ?? e.requestBytes - skills - bash;
-  if (!prompt || sent <= 0 || !(skills + bash)) return { skills: 0, bash: 0 };
+  const sent = e.sentBytes ?? e.requestBytes - skills - bash - tools;
+  if (!prompt || sent <= 0 || !(skills + bash + tools)) return { skills: 0, bash: 0, tools: 0 };
   const perChar = prompt / sent;
-  return { skills: Math.round(skills * perChar), bash: Math.round(bash * perChar) };
+  return { skills: Math.round(skills * perChar), bash: Math.round(bash * perChar), tools: Math.round(tools * perChar) };
 }
 
 /** Inference requests only: Anthropic Messages, Responses and Chat Completions. */
@@ -66,6 +69,7 @@ function add(t: Totals, e: LedgerEntry): void {
   const saved = savedTokens(e);
   t.savedSkills += saved.skills;
   t.savedBash += saved.bash;
+  t.savedTools += saved.tools;
 }
 
 export function grouped<K extends string>(entries: LedgerEntry[], keyOf: (e: LedgerEntry) => string, name: K): Array<Totals & Record<K, string>> {

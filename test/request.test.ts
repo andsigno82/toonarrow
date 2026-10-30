@@ -184,5 +184,5 @@ test('plain chat tool results are compressed whole, even when they contain "Outp
 });
 
 test('ignores bodies without messages', () => {
-  assert.deepEqual(rewriteAnthropic({}), { bashBlocks: 0, bashCharsSaved: 0 });
+  assert.deepEqual(rewriteAnthropic({}), { bashBlocks: 0, bashCharsSaved: 0, toolBlocks: 0, toolCharsSaved: 0 });
 });

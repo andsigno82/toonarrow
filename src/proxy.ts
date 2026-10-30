@@ -6,7 +6,7 @@ import type { IncomingHttpHeaders, IncomingMessage, OutgoingHttpHeaders, ServerR
 import type { Config } from './config.ts';
 import type { Ledger, LedgerEntry } from './ledger.ts';
 import { bodyShape, parseRequestJson, redactHeaders, requestMeta } from './meta.ts';
-import { rewriteAnthropic, rewriteChat, rewriteResponses } from './compress/request.ts';
+import { rewriteAnthropic, rewriteChat, rewriteResponses, rewrote } from './compress/request.ts';
 import type { RewriteStats } from './compress/request.ts';
 import { rewriteSkills } from './compress/skills.ts';
 import type { SessionMemoStore } from './session-memo.ts';
@@ -151,7 +151,7 @@ export function createProxyServer(opts: ProxyOptions): http.Server {
     const skills: SkillStats | undefined =
       json && opts.config.compress.skills ? rewriteSkills(json, wire, memo ? memo.keepSkills(keepSkills) : keepSkills) : undefined;
     // Only re-serialize when something changed; the body is then sent uncompressed.
-    const body = compression?.bashBlocks || skills?.skillsHidden ? Buffer.from(JSON.stringify(json)) : original;
+    const body = rewrote(compression) || skills?.skillsHidden ? Buffer.from(JSON.stringify(json)) : original;
     if (body !== original) delete headers['content-encoding'];
     // Identity responses keep the usage collector able to read the bytes it tees.
     headers['accept-encoding'] = 'identity';
@@ -168,7 +168,7 @@ export function createProxyServer(opts: ProxyOptions): http.Server {
       requestBytes: original.length,
       ...(body !== original ? { sentBytes: body.length } : {}),
       ...meta,
-      ...(compression?.bashBlocks ? { compression } : {}),
+      ...(rewrote(compression) ? { compression } : {}),
       ...(skills?.skillsHidden ? { skills } : {}),
     };
     let recorded = false;

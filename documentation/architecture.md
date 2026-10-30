@@ -51,6 +51,7 @@ client (Claude Code / Codex / OpenCode / Kora)
 | `src/compress/shell/` | per-command rules by family (`files`, `git`, `tests`, `build`) and the registry in `index.ts`: ls -l, git log/status, grep/rg, find/fd, pytest, vitest/jest, tsc, go test, cargo, npm/pip install, make |
 | `src/compress/request.ts` | shell call/result pairing for Anthropic Messages, Responses API and Chat Completions |
 | `src/compress/memo.ts`, `src/session-memo.ts` | per-session memo of compression decisions and its on-disk store |
+| `src/compress/search.ts` | non-shell search results, lossless: OpenCode `grep` (common directory factored, `Line N:` -> `N:`), Kora `searchCode` (JSON -> grep-style text with count, truncation and note); `is_error` results untouched |
 | `src/compress/json.ts` | byte-preserving JSON edits: in-place replacement of top-level string fields, whitespace-only minify |
 | `src/compress/skills.ts` | skill listings: full entry for skills in `compress.keepSkills`, names only for the rest |
 | `src/skill-usage.ts` | skill usage from local history (OpenCode database, Claude Code transcripts, Kora sessions), for `toonarrow skills` |

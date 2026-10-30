@@ -1,5 +1,6 @@
 import { editTopLevelStrings, topLevelStringSpans } from './json.ts';
 import { type Memo, memoKey, remember } from './memo.ts';
+import { SEARCH_TOOLS } from './search.ts';
 import { compressBashOutput } from './shell/index.ts';
 
 type Json = Record<string, any>;
@@ -8,9 +9,15 @@ export interface RewriteStats {
   /** Shell results rewritten in this request (the whole history, not just the newest turn). */
   bashBlocks: number;
   bashCharsSaved: number;
+  /** Results of non-shell search tools rewritten (OpenCode grep, Kora searchCode); absent in older ledger lines. */
+  toolBlocks?: number;
+  toolCharsSaved?: number;
 }
 
-const emptyStats = (): RewriteStats => ({ bashBlocks: 0, bashCharsSaved: 0 });
+const emptyStats = (): RewriteStats => ({ bashBlocks: 0, bashCharsSaved: 0, toolBlocks: 0, toolCharsSaved: 0 });
+
+/** True when a rewrite changed something in the request. */
+export const rewrote = (s: RewriteStats | undefined): boolean => !!s && (s.bashBlocks > 0 || (s.toolBlocks ?? 0) > 0);
 
 /** Per-request state: savings counters and the session's memo of earlier decisions. */
 interface Ctx {
@@ -26,6 +33,17 @@ function shellCommand(name: unknown, input: unknown): string | undefined {
   const command = (input as Json).command ?? (input as Json).cmd;
   return typeof command === 'string' ? command : undefined;
 }
+
+/** A non-shell search tool result, lossless; `is_error` results are never touched. */
+function compressSearchInto(ctx: Ctx, tool: string, text: string): string {
+  const result = remember(ctx.memo, memoKey('search', tool, text), text, () => SEARCH_TOOLS[tool]!(text));
+  if (result === text) return text;
+  ctx.stats.toolBlocks = (ctx.stats.toolBlocks ?? 0) + 1;
+  ctx.stats.toolCharsSaved = (ctx.stats.toolCharsSaved ?? 0) + text.length - result.length;
+  return result;
+}
+
+const searchTool = (name: unknown): string | undefined => (typeof name === 'string' && Object.hasOwn(SEARCH_TOOLS, name) ? name : undefined);
 
 function compressInto(ctx: Ctx, command: string, text: string): string {
   const result = remember(ctx.memo, memoKey('shell', command, text), text, () => compressBashOutput(command, text).text);
@@ -145,18 +163,22 @@ export function rewriteChat(body: Json, memo?: Memo): RewriteStats {
   const ctx: Ctx = { stats, memo };
   if (!Array.isArray(body.messages)) return stats;
   const commands = new Map<string, string>();
+  const searches = new Map<string, string>();
   for (const msg of body.messages) {
     if (msg?.role === 'assistant' && Array.isArray(msg.tool_calls)) {
       for (const call of msg.tool_calls) {
         const fn = call?.function;
+        if (typeof call?.id !== 'string') continue;
         const command = typeof fn?.arguments === 'string' ? shellCommand(fn.name, parseJson(fn.arguments)) : undefined;
-        if (command !== undefined && typeof call.id === 'string') commands.set(call.id, command);
+        if (command !== undefined) commands.set(call.id, command);
+        else if (searchTool(fn?.name)) searches.set(call.id, fn.name);
       }
-    } else if (msg?.role === 'tool' && commands.has(msg.tool_call_id)) {
-      const command = commands.get(msg.tool_call_id)!;
-      if (typeof msg.content === 'string') msg.content = compressToolText(ctx, command, msg.content);
+    } else if (msg?.role === 'tool' && (commands.has(msg.tool_call_id) || searches.has(msg.tool_call_id))) {
+      const command = commands.get(msg.tool_call_id);
+      const rewrite = (text: string): string => (command !== undefined ? compressToolText(ctx, command, text) : compressSearchInto(ctx, searches.get(msg.tool_call_id)!, text));
+      if (typeof msg.content === 'string') msg.content = rewrite(msg.content);
       else if (Array.isArray(msg.content) && msg.content.length === 1 && msg.content[0]?.type === 'text') {
-        msg.content[0].text = compressToolText(ctx, command, msg.content[0].text);
+        msg.content[0].text = rewrite(msg.content[0].text);
       }
     }
   }
@@ -173,17 +195,23 @@ export function rewriteAnthropic(body: Json, memo?: Memo): RewriteStats {
   const ctx: Ctx = { stats, memo };
   if (!Array.isArray(body.messages)) return stats;
   const commands = new Map<string, string>();
+  const searches = new Map<string, string>();
   for (const msg of body.messages) {
     if (!Array.isArray(msg?.content)) continue;
     for (const block of msg.content) {
       const command = msg.role === 'assistant' && block?.type === 'tool_use' ? shellCommand(block.name, block.input) : undefined;
       if (command !== undefined) {
         commands.set(block.id, command);
-      } else if (msg.role === 'user' && block?.type === 'tool_result' && commands.has(block.tool_use_id)) {
-        const command = commands.get(block.tool_use_id)!;
-        if (typeof block.content === 'string') block.content = compressInto(ctx, command, block.content);
+      } else if (msg.role === 'assistant' && block?.type === 'tool_use' && searchTool(block.name)) {
+        searches.set(block.id, block.name);
+      } else if (msg.role === 'user' && block?.type === 'tool_result') {
+        const command = commands.get(block.tool_use_id);
+        const search = block.is_error ? undefined : searches.get(block.tool_use_id);
+        if (command === undefined && search === undefined) continue;
+        const rewrite = (text: string): string => (command !== undefined ? compressInto(ctx, command, text) : compressSearchInto(ctx, search!, text));
+        if (typeof block.content === 'string') block.content = rewrite(block.content);
         else if (Array.isArray(block.content) && block.content.length === 1 && block.content[0]?.type === 'text') {
-          block.content[0].text = compressInto(ctx, command, block.content[0].text);
+          block.content[0].text = rewrite(block.content[0].text);
         }
       }
     }

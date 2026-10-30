@@ -18,11 +18,11 @@ const entry = (patch: Partial<LedgerEntry>): LedgerEntry => ({
 test('saved tokens use the token density of the body actually sent', () => {
   // 400 tokens for 800 bytes sent: 0.5 tokens per removed char.
   const e = entry({ requestBytes: 2000, sentBytes: 800, usage: { input: 100, cacheRead: 250, cacheWrite: 50, output: 9, reasoning: 0 }, skills: { skillsHidden: 3, skillsCharsSaved: 1000 }, compression: { bashBlocks: 1, bashCharsSaved: 200 } });
-  assert.deepEqual(savedTokens(e), { skills: 500, bash: 100 });
+  assert.deepEqual(savedTokens(e), { skills: 500, bash: 100, tools: 0 });
   // Without sentBytes (older entries) the sent size is the original minus the removed chars.
-  assert.deepEqual(savedTokens({ ...e, sentBytes: undefined }), { skills: 500, bash: 100 });
-  assert.deepEqual(savedTokens(entry({ usage: e.usage })), { skills: 0, bash: 0 });
-  assert.deepEqual(savedTokens({ ...e, usage: undefined }), { skills: 0, bash: 0 });
+  assert.deepEqual(savedTokens({ ...e, sentBytes: undefined }), { skills: 500, bash: 100, tools: 0 });
+  assert.deepEqual(savedTokens(entry({ usage: e.usage })), { skills: 0, bash: 0, tools: 0 });
+  assert.deepEqual(savedTokens({ ...e, usage: undefined }), { skills: 0, bash: 0, tools: 0 });
 });
 
 test('summarize fills every local day, groups sessions, models and clients', () => {

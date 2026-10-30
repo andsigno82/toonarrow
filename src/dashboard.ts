@@ -19,14 +19,14 @@ export const DASHBOARD_HTML = `<!doctype html>
 <style>
 :root {
   --bg: #f6f4ee; --surface: #fffdf8; --ink: #1f1d18; --muted: #6d685d; --line: #e3ded2; --accent: #2d7a4b;
-  --saved-skills: #2d7a4b; --saved-bash: #93c9a5;
+  --saved-skills: #2d7a4b; --saved-bash: #93c9a5; --saved-tools: #c9a227;
   --u-input: #c5582f; --u-read: #2d7a4b; --u-write: #d8a23f; --u-output: #4b6fa6;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #151410; --surface: #1d1c17; --ink: #ebe7dc; --muted: #a29d90; --line: #34322a; --accent: #6cc28a;
-    --saved-skills: #5bb57d; --saved-bash: #2f6b45;
+    --saved-skills: #5bb57d; --saved-bash: #2f6b45; --saved-tools: #b8962e;
     --u-input: #e07a52; --u-read: #5bb57d; --u-write: #e0b45a; --u-output: #7d9bd0;
     color-scheme: dark;
   }
@@ -133,10 +133,10 @@ const I18N = {
       + 'I token risparmiati sono una stima: per ogni richiesta riscritta, i caratteri tolti da toonarrow (descrizioni delle skill, output dei comandi shell) '
       + 'sono convertiti con la densità della richiesta stessa, cioè token di prompt fatturati diviso byte effettivamente inviati. '
       + 'Sono token che altrimenti sarebbero stati inviati in quella richiesta, in cache o no.',
-    skills: 'Elenco skill', shell: 'Output shell',
+    skills: 'Elenco skill', shell: 'Output shell', search: 'Risultati di ricerca',
     session: 'Sessione', client: 'Client', models: 'Modelli', lastActivity: 'Ultima attività', model: 'Modello', saveCol: 'Risparmiati', noModel: '(senza modello)', empty: 'Nessuna richiesta nel periodo',
     updated: (t) => 'aggiornato alle ' + t, todaySub: 'Oggi', lastDays: (n) => 'Ultimi ' + n + ' giorni locali',
-    savedNote: (pct, sk, sh) => pct + ' del prompt senza toonarrow · skill ' + sk + ' · shell ' + sh, noRewrites: 'nessuna riscrittura nel periodo',
+    savedNote: (pct, sk, sh, se) => pct + ' del prompt senza toonarrow · skill ' + sk + ' · shell ' + sh + ' · ricerca ' + se, noRewrites: 'nessuna riscrittura nel periodo',
     inOut: (i, o) => 'input ' + i + ' · output ' + o,
     reqNote: (s, c, e, eN, other) => s + ' sessioni · ' + c + ' client · ' + e + (eN === 1 ? ' errore' : ' errori') + (other ? ' · ' + other + ' non di inferenza escluse' : ''),
   },
@@ -149,10 +149,10 @@ const I18N = {
       + 'Tokens saved are an estimate: for each rewritten request, the characters toonarrow removed (skill descriptions, shell command output) '
       + 'are converted with that request\\'s own density, that is billed prompt tokens divided by bytes actually sent. '
       + 'They are tokens that would otherwise have been sent in that request, cached or not.',
-    skills: 'Skill listing', shell: 'Shell output',
+    skills: 'Skill listing', shell: 'Shell output', search: 'Search results',
     session: 'Session', client: 'Client', models: 'Models', lastActivity: 'Last activity', model: 'Model', saveCol: 'Saved', noModel: '(no model)', empty: 'No requests in this period',
     updated: (t) => 'updated at ' + t, todaySub: 'Today', lastDays: (n) => 'Last ' + n + ' local days',
-    savedNote: (pct, sk, sh) => pct + ' of the prompt without toonarrow · skills ' + sk + ' · shell ' + sh, noRewrites: 'no rewrites in this period',
+    savedNote: (pct, sk, sh, se) => pct + ' of the prompt without toonarrow · skills ' + sk + ' · shell ' + sh + ' · search ' + se, noRewrites: 'no rewrites in this period',
     inOut: (i, o) => 'input ' + i + ' · output ' + o,
     reqNote: (s, c, e, eN, other) => s + (s === '1' ? ' session · ' : ' sessions · ') + c + (c === '1' ? ' client · ' : ' clients · ') + e + (eN === 1 ? ' error' : ' errors') + (other ? ' · ' + other + ' non-inference excluded' : ''),
   },
@@ -160,6 +160,7 @@ const I18N = {
 const SAVED = [
   { key: 'savedSkills', label: 'skills', color: 'var(--saved-skills)' },
   { key: 'savedBash', label: 'shell', color: 'var(--saved-bash)' },
+  { key: 'savedTools', label: 'search', color: 'var(--saved-tools)' },
 ];
 const USAGE = [
   { key: 'cacheRead', name: 'Cache read', color: 'var(--u-read)' },
@@ -190,7 +191,7 @@ function setLang(next) {
 }
 const seriesLabel = (s) => s.name || msg[s.label];
 
-const saved = (t) => t.savedSkills + t.savedBash;
+const saved = (t) => t.savedSkills + t.savedBash + (t.savedTools ?? 0);
 const prompt = (t) => t.input + t.cacheRead + t.cacheWrite;
 const hit = (t) => (prompt(t) ? pf.format(t.cacheRead / prompt(t)) : '-');
 const dayLabel = (d) => new Date(d + 'T12:00:00').toLocaleDateString(locale, { day: 'numeric', month: 'short' });
@@ -270,7 +271,7 @@ function render(s) {
   document.getElementById('sub').textContent = days === 1 ? msg.todaySub : msg.lastDays(days);
   document.getElementById('updated').textContent = msg.updated(new Date(s.generatedAt).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }));
   document.getElementById('c-saved').textContent = cf.format(saved(t));
-  document.getElementById('c-saved-note').textContent = sentPrompt ? msg.savedNote(pf.format(saved(t) / (sentPrompt + saved(t))), cf.format(t.savedSkills), cf.format(t.savedBash)) : msg.noRewrites;
+  document.getElementById('c-saved-note').textContent = sentPrompt ? msg.savedNote(pf.format(saved(t) / (sentPrompt + saved(t))), cf.format(t.savedSkills), cf.format(t.savedBash), cf.format(t.savedTools ?? 0)) : msg.noRewrites;
   document.getElementById('c-prompt').textContent = cf.format(sentPrompt);
   document.getElementById('c-prompt-note').textContent = msg.inOut(cf.format(t.input), cf.format(t.output));
   document.getElementById('c-hit').textContent = hit(t);

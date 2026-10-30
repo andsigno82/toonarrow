@@ -69,7 +69,7 @@ async function stats(args: string[]): Promise<void> {
       cacheWrite: fmt(r.cacheWrite),
       output: fmt(r.output),
       cacheHit: prompt ? `${((100 * r.cacheRead) / prompt).toFixed(1)}%` : '-',
-      saved: fmt(r.savedSkills + r.savedBash),
+      saved: fmt(r.savedSkills + r.savedBash + r.savedTools),
     };
   });
   if (!table.length) console.log(`no requests in the last ${days} day(s)`);
