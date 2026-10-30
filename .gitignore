@@ -1,4 +1,5 @@
 node_modules/
+dist/
 
 # Private notes: maintainer diary, competitive analysis, machine-specific measurements.
 CLAUDE.local.md

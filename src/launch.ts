@@ -1,12 +1,13 @@
 import { spawn } from 'node:child_process';
 import { accessSync, constants, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, join, resolve } from 'node:path';
+import { delimiter, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HOME_DIR, loadConfig } from './config.ts';
 import { BRIEF_GUIDANCE, fileToolGuidance } from './guidance.ts';
 
-const CLI_PATH = fileURLToPath(new URL('./cli.ts', import.meta.url));
+// Sibling of this module: cli.ts when run from source, cli.js in the npm build.
+const CLI_PATH = fileURLToPath(new URL(`./cli${extname(fileURLToPath(import.meta.url))}`, import.meta.url));
 const NODE_ARGS = ['--disable-warning=ExperimentalWarning', CLI_PATH];
 
 /** Native file tools replaced by mcp__toonarrow__Search / mcp__toonarrow__Edit while the gate is on. */

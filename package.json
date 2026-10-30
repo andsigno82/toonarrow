@@ -3,15 +3,43 @@
   "version": "0.1.0",
   "description": "The open-source, multi-CLI alternative to Fermat's Last Token: a local context-compression proxy for Claude Code, Codex, OpenCode and Kora",
   "license": "Apache-2.0",
+  "author": "Andrea <andsigno82@gmail.com>",
+  "homepage": "https://github.com/andsigno82/toonarrow#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/andsigno82/toonarrow.git"
+  },
+  "bugs": "https://github.com/andsigno82/toonarrow/issues",
+  "keywords": [
+    "claude-code",
+    "codex",
+    "opencode",
+    "kora",
+    "llm",
+    "proxy",
+    "tokens",
+    "context-compression",
+    "prompt-caching",
+    "mcp"
+  ],
   "type": "module",
-  "private": true,
+  "bin": {
+    "toonarrow": "dist/bin.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=24"
   },
   "scripts": {
     "serve": "node src/cli.ts serve",
     "test": "node --test 'test/**/*.test.ts'",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
