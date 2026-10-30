@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process';
-import { accessSync, constants, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HOME_DIR, loadConfig } from './config.ts';
 import { BRIEF_GUIDANCE, fileToolGuidance } from './guidance.ts';
+import { currentPlatform } from './platform/index.ts';
 
 // Sibling of this module: cli.ts when run from source, cli.js in the npm build.
 const CLI_PATH = fileURLToPath(new URL(`./cli${extname(fileURLToPath(import.meta.url))}`, import.meta.url));
@@ -58,17 +59,10 @@ export function resolveClientBin(name: string, env: NodeJS.ProcessEnv = process.
   const shim = realpathOr(shimDir);
   const dirs = (env.PATH ?? '').split(delimiter).filter(Boolean);
   const at = dirs.findIndex((d) => realpathOr(d) === shim);
-  for (const dir of at >= 0 ? dirs.slice(at + 1) : dirs) {
-    if (realpathOr(dir) === shim) continue;
-    const path = join(dir, name);
-    try {
-      accessSync(path, constants.X_OK);
-      if (statSync(path).isFile()) return path;
-    } catch {
-      // not here
-    }
-  }
-  throw new Error(`${name} not found in PATH`);
+  const candidates = (at >= 0 ? dirs.slice(at + 1) : dirs).filter((d) => realpathOr(d) !== shim);
+  const found = currentPlatform().resolveExecutable(name, candidates);
+  if (!found) throw new Error(`${name} not found in PATH`);
+  return found;
 }
 
 /**
@@ -83,42 +77,28 @@ export function pathWithoutShims(path: string = process.env.PATH ?? '', shimDir:
     .join(delimiter);
 }
 
-const RC_BEGIN = '# >>> toonarrow shims >>>';
-const RC_END = '# <<< toonarrow shims <<<';
-
 /**
- * Shell rc text with the toonarrow PATH block replaced (`add`) or removed. Pure and idempotent: installing twice
- * leaves one block, and text outside the markers is never touched.
+ * `env` with PATH replaced, under the PATH key the source already uses: Windows keeps `Path`, and a second key
+ * would leave the child process with the old value.
  */
-export function withShimPathBlock(text: string, add: boolean, shimDir: string = SHIM_DIR): string {
-  let out = text;
-  const start = out.indexOf(RC_BEGIN);
-  const end = out.indexOf(RC_END);
-  if (start >= 0 && end > start) {
-    const before = out.slice(0, start).replace(/\n+$/, '');
-    const after = out.slice(end + RC_END.length).replace(/^\n+/, '');
-    out = before + (before && after ? '\n\n' : '') + after;
-  }
-  if (!add) return out;
-  const block = [
-    RC_BEGIN,
-    '# toonarrow attaches to claude, codex, opencode and kora when it runs (`toonarrow uninstall` removes this block).',
-    `case ":$PATH:" in *":${shimDir}:"*) ;; *) export PATH="${shimDir}:$PATH" ;; esac`,
-    RC_END,
-  ].join('\n');
-  return `${out.replace(/\n*$/, '')}${out.trim() ? '\n\n' : ''}${block}\n`;
+export function envWithPath(env: NodeJS.ProcessEnv, path: string): NodeJS.ProcessEnv {
+  const keys = Object.keys(env).filter((k) => k.toUpperCase() === 'PATH');
+  const key = keys.includes('PATH') ? 'PATH' : (keys[0] ?? 'PATH');
+  return { ...env, [key]: path };
 }
 
-export function shimScript(client: string): string {
-  return `#!/usr/bin/env bash\n# toonarrow shim, written by \`toonarrow install\`: attaches toonarrow to ${client} while the proxy runs, otherwise runs ${client} unchanged.\nexec '${process.execPath}' ${NODE_ARGS.map((a) => `'${a}'`).join(' ')} shim ${client} "$@"\n`;
-}
+/** Shell rc text with the toonarrow PATH block, see platform/darwin.ts. */
+export const withShimPathBlock = (text: string, add: boolean, shimDir: string = SHIM_DIR): string =>
+  currentPlatform().withShimPathBlock(text, add, shimDir);
+
+export const shimScript = (client: string): string => currentPlatform().shimScript(client, { execPath: process.execPath, cliPath: CLI_PATH });
 
 /**
  * Entry point of the shims: the user types `kora` (or claude, codex, opencode) and toonarrow attaches when it runs,
  * like Fermat's `claude` shim. With toonarrow off the client runs exactly as without toonarrow (Fermat's vanilla mode).
  */
 export async function launchShim(client: string, argv: string[]): Promise<number> {
-  const passthrough = (): Promise<number> => run(resolveClientBin(client), argv, { ...process.env, PATH: pathWithoutShims() });
+  const passthrough = (): Promise<number> => run(resolveClientBin(client), argv, envWithPath(process.env, pathWithoutShims()));
   if (process.env[SHIM_GUARD] === client) return passthrough();
   process.env[SHIM_GUARD] = client;
   const config = loadConfig();
@@ -164,7 +144,7 @@ function run(bin: string, args: string[], env: NodeJS.ProcessEnv): Promise<numbe
 
 /** Environment without another proxy's wrapper variables (e.g. Fermat), so sessions do not mix. */
 function cleanEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, PATH: pathWithoutShims() };
+  const env = envWithPath(process.env, pathWithoutShims());
   for (const k of Object.keys(env)) if (/^(FERMAT|FERMATSLASTTOKEN|FILETOFISH|QUOTIENT)_/.test(k) || k === 'ANTHROPIC_CUSTOM_HEADERS') delete env[k];
   return env;
 }

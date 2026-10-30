@@ -1,7 +1,5 @@
 #!/usr/bin/env node
-import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CAPTURE_DIR, CONFIG_PATH, LEDGER_DIR, LOG_DIR, RUNTIME_PATH, initConfig, loadConfig, setCompressConfig } from './config.ts';
@@ -9,14 +7,11 @@ import type { Config } from './config.ts';
 import { Ledger, dayStamp } from './ledger.ts';
 import { clientLabel, grouped, isInference } from './report.ts';
 import type { LedgerEntry } from './ledger.ts';
-import { SHIM_CLIENTS, SHIM_DIR, launchClaude, launchCodex, launchKora, launchOpencode, launchShim, preToolUseHook, shimScript, withShimPathBlock } from './launch.ts';
+import { SHIM_CLIENTS, SHIM_DIR, launchClaude, launchCodex, launchKora, launchOpencode, launchShim, preToolUseHook } from './launch.ts';
+import { currentPlatform } from './platform/index.ts';
 import { VERSION, createProxyServer } from './proxy.ts';
 
-const LAUNCHD_LABEL = 'dev.toonarrow.proxy';
-const PLIST_PATH = join(homedir(), 'Library', 'LaunchAgents', `${LAUNCHD_LABEL}.plist`);
-const WRAPPER_PATH = join(homedir(), '.local', 'bin', 'toonarrow');
 const CLI_PATH = fileURLToPath(import.meta.url);
-const SHELL_RC = join(process.env.ZDOTDIR ?? homedir(), '.zshrc');
 
 const baseUrl = (c: Config): string => `http://${c.host}:${c.port}`;
 
@@ -99,78 +94,38 @@ function flag(args: string[], name: string): string | undefined {
   return i >= 0 ? args[i + 1] : undefined;
 }
 
-function plist(): string {
-  const args = [process.execPath, '--disable-warning=ExperimentalWarning', CLI_PATH, 'serve'];
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>${LAUNCHD_LABEL}</string>
-  <key>ProgramArguments</key>
-  <array>${args.map((a) => `<string>${a}</string>`).join('')}</array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>${join(LOG_DIR, 'toonarrow.out.log')}</string>
-  <key>StandardErrorPath</key><string>${join(LOG_DIR, 'toonarrow.err.log')}</string>
-</dict>
-</plist>
-`;
-}
-
-const launchctl = (...args: string[]): void => {
-  execFileSync('launchctl', args, { stdio: 'inherit' });
-};
-const domain = (): string => `gui/${process.getuid?.()}`;
-
-const sleepSync = (ms: number): void => {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-};
-
-const daemonLoaded = (): boolean => {
-  try {
-    execFileSync('launchctl', ['print', `${domain()}/${LAUNCHD_LABEL}`], { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-/** bootout returns before launchd has unloaded the job; a bootstrap in that window fails with "Input/output error". */
-function unloadDaemon(): void {
-  if (!daemonLoaded()) return;
-  launchctl('bootout', `${domain()}/${LAUNCHD_LABEL}`);
-  for (let i = 0; i < 100 && daemonLoaded(); i++) sleepSync(100);
-}
-
 function install(): void {
+  const platform = currentPlatform();
+  const cmd = { execPath: process.execPath, cliPath: CLI_PATH };
+  const wrapper = platform.wrapperPath();
+  const rc = platform.shellRc();
   if (initConfig()) console.log(`config: created ${CONFIG_PATH}`);
   mkdirSync(LOG_DIR, { recursive: true });
-  mkdirSync(dirname(WRAPPER_PATH), { recursive: true });
-  writeFileSync(WRAPPER_PATH, `#!/usr/bin/env bash\nexec '${process.execPath}' --disable-warning=ExperimentalWarning '${CLI_PATH}' "$@"\n`);
-  chmodSync(WRAPPER_PATH, 0o755);
-  console.log(`wrapper: ${WRAPPER_PATH}`);
-  mkdirSync(dirname(PLIST_PATH), { recursive: true });
-  unloadDaemon();
-  writeFileSync(PLIST_PATH, plist());
-  launchctl('bootstrap', domain(), PLIST_PATH);
-  console.log(`daemon: ${LAUNCHD_LABEL} loaded (${PLIST_PATH})`);
+  mkdirSync(dirname(wrapper), { recursive: true });
+  writeFileSync(wrapper, platform.wrapperScript(cmd));
+  chmodSync(wrapper, 0o755);
+  console.log(`wrapper: ${wrapper}`);
+  const service = platform.installService(cmd, LOG_DIR);
+  console.log(`daemon: ${service.label} loaded (${service.path})`);
   mkdirSync(SHIM_DIR, { recursive: true });
   for (const client of SHIM_CLIENTS) {
     const path = join(SHIM_DIR, client);
-    writeFileSync(path, shimScript(client));
+    writeFileSync(path, platform.shimScript(client, cmd));
     chmodSync(path, 0o755);
   }
-  writeFileSync(SHELL_RC, withShimPathBlock(existsSync(SHELL_RC) ? readFileSync(SHELL_RC, 'utf8') : '', true));
-  console.log(`shims: ${SHIM_CLIENTS.join(', ')} in ${SHIM_DIR}, first in PATH via ${SHELL_RC} (open a new shell)`);
+  writeFileSync(rc, platform.withShimPathBlock(existsSync(rc) ? readFileSync(rc, 'utf8') : '', true, SHIM_DIR));
+  console.log(`shims: ${SHIM_CLIENTS.join(', ')} in ${SHIM_DIR}, first in PATH via ${rc} (open a new shell)`);
 }
 
 function uninstall(): void {
-  unloadDaemon();
-  rmSync(PLIST_PATH, { force: true });
-  rmSync(WRAPPER_PATH, { force: true });
+  const platform = currentPlatform();
+  const wrapper = platform.wrapperPath();
+  const rc = platform.shellRc();
+  platform.removeService();
+  rmSync(wrapper, { force: true });
   for (const client of SHIM_CLIENTS) rmSync(join(SHIM_DIR, client), { force: true });
-  if (existsSync(SHELL_RC)) writeFileSync(SHELL_RC, withShimPathBlock(readFileSync(SHELL_RC, 'utf8'), false));
-  console.log(`removed daemon, wrapper, shims and the ${SHELL_RC} block; data kept in ${dirname(CONFIG_PATH)}`);
+  if (existsSync(rc)) writeFileSync(rc, platform.withShimPathBlock(readFileSync(rc, 'utf8'), false, SHIM_DIR));
+  console.log(`removed daemon, wrapper, shims and the ${rc} block; data kept in ${dirname(CONFIG_PATH)}`);
 }
 
 // Static client config has no fallback: with toonarrow off that client stops working. The launchers check the proxy
@@ -225,7 +180,7 @@ async function main(argv: string[]): Promise<void> {
     case 'dashboard': {
       const url = `${baseUrl(loadConfig())}/_toonarrow/`;
       console.log(url);
-      execFileSync('open', [url]);
+      currentPlatform().openUrl(url);
       return;
     }
     case 'install':
