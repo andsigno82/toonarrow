@@ -10,7 +10,7 @@
 **The open-source, multi-CLI alternative to Fermat's Last Token.**
 
 toonarrow is a local proxy that cuts the tokens your coding agents send, by rewriting their context before it
-reaches the provider. It works with **Claude Code, Codex, OpenCode and Kora**, runs entirely on your machine, needs
+reaches the provider. It works with **Claude Code, Codex, OpenCode and [Kora](https://kora-ai.download)** (Desktop and CLI), runs entirely on your machine, needs
 no account, and is Apache-2.0 licensed.
 
 > *"I have discovered a truly marvelous proof of this, which this margin is too narrow to contain."*
@@ -60,7 +60,7 @@ same idea to every coding agent, in the open.
 |---|---|---|
 | Source | Open source (Apache-2.0) | Proprietary |
 | Account | None | Required |
-| Clients | Claude Code, Codex, OpenCode, Kora | Claude Code |
+| Clients | Claude Code, Codex, OpenCode, Kora Desktop and CLI | Claude Code |
 | Dashboard | Local, in tokens | Cloud |
 
 *Comparison based on public information as of October 2026. toonarrow is not affiliated with or endorsed by
@@ -108,8 +108,20 @@ toonarrow codex --toonarrow-no-brief     # without the short-answer rule
 
 ### Kora
 
-Kora CLI reads `KORA_LLM_PROXY`, which the `kora` shim sets. Kora Desktop has an opt-in switch in
-*Settings > Smart Token Engine > Context proxy*, in the releases that include it.
+[Kora](https://kora-ai.download) is a free, native AI workspace for macOS
+([documentation](https://docs.kora-ai.download)). toonarrow works with both Kora Desktop and Kora CLI, and trims what
+weighs most in a Kora request: the `## Available Skills` listing, which with hundreds of installed skills is most of
+the prompt, and the output of `executeCommand`.
+
+- **Kora Desktop.** Turn on *Settings > Smart Token Engine > Context proxy*; the default address
+  `http://127.0.0.1:48700` is toonarrow's, and a badge shows whether it is reachable. Before sending a request, Kora
+  checks `/_toonarrow/health` and goes straight to the provider when toonarrow is not running, so the switch can stay
+  on. It covers the inference requests of the Kora, ByteDance, Kimi Code, custom and OpenAI (ChatGPT sign-in)
+  providers; model lists and sign-in always go direct.
+- **[Kora CLI](https://kora-ai.download/cli).** Nothing to configure: keep typing `kora`. When toonarrow is running, the `kora` shim sets
+  `KORA_LLM_PROXY`, the Kora counterpart of `ANTHROPIC_BASE_URL`; when it is not, `kora` starts unchanged.
+
+The dashboard and `toonarrow stats` show Kora Desktop and Kora CLI as separate clients (`Kora` and `Kora-CLI`).
 
 ### Configuration
 

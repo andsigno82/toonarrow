@@ -177,6 +177,19 @@ footer.bottom { margin-top: 96px; padding: 28px 0 40px; border-top: 1px solid va
   <p class="note">Small shims first in your PATH check whether the proxy is up, then hand over to the real client.</p>
 
   <section>
+    <h2>Kora, on the desktop and in the terminal</h2>
+    <p><a href="https://kora-ai.download">Kora</a> is a free, native AI workspace for macOS: chat, editor, terminal and Git in one window, with your own models and keys. toonarrow works with both Kora Desktop and <a href="https://kora-ai.download/cli">Kora CLI</a>, which share the same sessions.</p>
+    <dl class="features">
+      <dt>Kora Desktop</dt>
+      <dd>Turn on <i>Settings › Smart Token Engine › Context proxy</i>. Before each request Kora checks that toonarrow is up, and goes straight to the provider when it is not, so the switch can stay on. It covers the Kora, ByteDance, Kimi Code, custom and ChatGPT sign-in providers.</dd>
+      <dt>Kora CLI</dt>
+      <dd>Nothing to set: keep typing <code>kora</code>. When toonarrow is running, the shim points Kora at it through <code>KORA_LLM_PROXY</code>, the way <code>ANTHROPIC_BASE_URL</code> works for Claude Code.</dd>
+    </dl>
+    <p>In both, the skill listing and the output of <code>executeCommand</code> are trimmed, and the dashboard shows Desktop and CLI as separate clients.</p>
+  </section>
+  <p class="note">Kora's own guides, including the Smart Token Engine settings, are at <a href="https://docs.kora-ai.download">docs.kora-ai.download</a>.</p>
+
+  <section>
     <h2>toonarrow and Fermat's Last Token</h2>
     <p>Fermat's Last Token showed that a local proxy and better file tools can cut an agent's bill. toonarrow takes the same idea to every coding agent, in the open.</p>
     <table>
@@ -184,7 +197,7 @@ footer.bottom { margin-top: 96px; padding: 28px 0 40px; border-top: 1px solid va
       <tbody>
         <tr><td>Source</td><td>Open source, Apache-2.0</td><td>Proprietary</td></tr>
         <tr><td>Account</td><td>None</td><td>Required</td></tr>
-        <tr><td>Clients</td><td>Claude Code, Codex, OpenCode, Kora</td><td>Claude Code</td></tr>
+        <tr><td>Clients</td><td>Claude Code, Codex, OpenCode, Kora Desktop and CLI</td><td>Claude Code</td></tr>
         <tr><td>Dashboard</td><td>Local, in tokens</td><td>Cloud</td></tr>
       </tbody>
     </table>
