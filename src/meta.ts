@@ -68,11 +68,12 @@ function sessionOf(headers: IncomingHttpHeaders, body: Json | undefined): [strin
   }
   const codexHeader = header(headers, 'session_id') ?? header(headers, 'session-id');
   if (codexHeader) return [codexHeader, 'header:session_id'];
+  // Kora (OpenAI-compatible providers) sends its own session id as an extra body field. It wins over
+  // x-opencode-session-id, which Kora also sends when the user configured that session-header rule.
+  if (typeof body?.session_id === 'string') return [body.session_id, 'body:session_id'];
   const opencodeHeader = header(headers, 'x-opencode-session-id') ?? header(headers, 'x-opencode-session');
   if (opencodeHeader) return [opencodeHeader, 'header:x-opencode-session-id'];
   if (typeof body?.prompt_cache_key === 'string') return [body.prompt_cache_key, 'body:prompt_cache_key'];
-  // Kora CLI (OpenAI-compatible providers) sends its session id as an extra body field.
-  if (typeof body?.session_id === 'string') return [body.session_id, 'body:session_id'];
   return undefined;
 }
 

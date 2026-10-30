@@ -29,6 +29,10 @@ test('kora cli session from the session_id body field', () => {
   const m = requestMeta('openai-chat', {}, { model: 'flash', session_id: 'session-1' });
   assert.equal(m.sessionKey, 'session-1');
   assert.equal(m.sessionSource, 'body:session_id');
+  // Kora also sends x-opencode-session-id when a session-header rule is configured: its own id wins.
+  const both = requestMeta('openai-chat', { 'x-opencode-session-id': 'uuid-rule' }, { session_id: 'session-1' });
+  assert.equal(both.sessionKey, 'session-1');
+  assert.equal(requestMeta('openai-chat', { 'x-opencode-session-id': 'uuid-rule' }, {}).sessionKey, 'uuid-rule');
 });
 
 test('parses gzip-encoded request bodies and tolerates garbage', () => {
