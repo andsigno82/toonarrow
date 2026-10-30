@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { CAPTURE_DIR, CONFIG_PATH, LEDGER_DIR, LOG_DIR, RUNTIME_PATH, initConfig, loadConfig, setCompressConfig } from './config.ts';
 import type { Config } from './config.ts';
 import { Ledger, dayStamp } from './ledger.ts';
-import { clientLabel, grouped } from './report.ts';
+import { clientLabel, grouped, isInference } from './report.ts';
 import type { LedgerEntry } from './ledger.ts';
 import { SHIM_CLIENTS, SHIM_DIR, launchClaude, launchCodex, launchKora, launchOpencode, launchShim, preToolUseHook, shimScript, withShimPathBlock } from './launch.ts';
 import { VERSION, createProxyServer } from './proxy.ts';
@@ -61,7 +61,7 @@ async function stats(args: string[]): Promise<void> {
   const by = (flag(args, '--by') ?? 'model') as GroupBy;
   const entries = await new Ledger(LEDGER_DIR).read(days);
   const fmt = (n: number): string => n.toLocaleString('en-US');
-  const table = grouped(entries, (e) => groupKey(e, by), by).map((r) => {
+  const table = grouped(entries.filter(isInference), (e) => groupKey(e, by), by).map((r) => {
     const prompt = r.input + r.cacheRead + r.cacheWrite;
     return {
       [by]: r[by],

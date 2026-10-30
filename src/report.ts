@@ -26,6 +26,8 @@ export interface Summary {
   days: number;
   generatedAt: string;
   totals: Totals;
+  /** Requests that are not inference (model lists, health probes, unknown paths), left out of every total. */
+  otherRequests: number;
   daily: Array<Totals & { day: string }>;
   sessions: SessionRow[];
   models: Array<Totals & { model: string }>;
@@ -48,6 +50,9 @@ export function savedTokens(e: LedgerEntry): { skills: number; bash: number } {
   const perChar = prompt / sent;
   return { skills: Math.round(skills * perChar), bash: Math.round(bash * perChar) };
 }
+
+/** Inference requests only: Anthropic Messages, Responses and Chat Completions. */
+export const isInference = (e: LedgerEntry): boolean => e.wire !== 'other';
 
 function add(t: Totals, e: LedgerEntry): void {
   t.requests++;
@@ -93,9 +98,14 @@ export function summarize(entries: LedgerEntry[], days: number, now: Date = new 
   }
   const sessions = new Map<string, SessionRow>();
   const inRange: LedgerEntry[] = [];
+  let otherRequests = 0;
   for (const e of entries) {
     const day = daily.get(dayStamp(new Date(e.ts)));
     if (!day) continue;
+    if (!isInference(e)) {
+      otherRequests++;
+      continue;
+    }
     inRange.push(e);
     add(totals, e);
     add(day, e);
@@ -111,6 +121,7 @@ export function summarize(entries: LedgerEntry[], days: number, now: Date = new 
     days,
     generatedAt: now.toISOString(),
     totals,
+    otherRequests,
     daily: [...daily].map(([day, t]) => ({ ...t, day })),
     sessions: [...sessions.values()].sort((a, b) => b.last.localeCompare(a.last)).slice(0, sessionLimit),
     models: grouped(inRange, (e) => e.model ?? '?', 'model'),

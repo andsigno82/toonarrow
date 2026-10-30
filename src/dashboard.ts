@@ -211,7 +211,7 @@ async function load() {
   document.getElementById('c-prompt-note').textContent = 'input ' + cf.format(t.input) + ' · output ' + cf.format(t.output);
   document.getElementById('c-hit').textContent = hit(t);
   document.getElementById('c-req').textContent = nf.format(t.requests);
-  document.getElementById('c-req-note').textContent = s.sessions.length + ' sessioni · ' + s.clients.length + ' client · ' + nf.format(t.errors) + (t.errors === 1 ? ' errore' : ' errori');
+  document.getElementById('c-req-note').textContent = s.sessions.length + ' sessioni · ' + s.clients.length + ' client · ' + nf.format(t.errors) + (t.errors === 1 ? ' errore' : ' errori') + (s.otherRequests ? ' · ' + nf.format(s.otherRequests) + ' non di inferenza escluse' : '');
   stacked(document.getElementById('chart-saved'), s.daily, SAVED);
   stacked(document.getElementById('chart-usage'), s.daily, USAGE);
   legend(document.getElementById('legend-saved'), SAVED);

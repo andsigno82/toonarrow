@@ -43,6 +43,24 @@ test('summarize fills every local day, groups sessions, models and clients', () 
   assert.deepEqual(s.clients.map((r) => r.client).sort(), ['claude-cli 2.1.3', 'opencode 2.2.0']);
 });
 
+test('requests that are not inference stay out of every total and are only counted', () => {
+  const s = summarize(
+    [
+      entry({ sessionKey: 's', model: 'm' }),
+      entry({ wire: 'other', path: '/api/hello', client: 'Bun/1.4.4' }),
+      entry({ wire: 'other', path: '/x', status: 502, error: 'upstream request: ENOTFOUND', client: 'curl/8.7.1' }),
+    ],
+    1,
+    new Date('2026-10-29T15:00:00'),
+  );
+  assert.equal(s.totals.requests, 1);
+  assert.equal(s.totals.errors, 0);
+  assert.equal(s.otherRequests, 2);
+  assert.deepEqual(s.sessions.map((r) => r.session), ['s']);
+  assert.deepEqual(s.clients.map((r) => r.client), ['?']);
+  assert.deepEqual(s.models.map((r) => r.model), ['m']);
+});
+
 test('errors count HTTP failures, transport errors and stream error events', () => {
   const s = summarize(
     [
