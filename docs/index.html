@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>toonarrow</title>
+<meta name="description" content="The open-source, multi-CLI alternative to Fermat's Last Token: a local proxy that trims what Claude Code, Codex, OpenCode and Kora send to the model.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%20-217%20800%20800%22%3E%3Crect%20x%3D%220%22%20y%3D%22-217%22%20width%3D%22800%22%20height%3D%22800%22%20fill%3D%22%23151410%22%2F%3E%3Cpath%20d%3D%22M142%2096%20L61%20174%20L61%20191%20L142%20269%20L150%20269%20L150%20241%20L91%20182.5%20L150%20124%20L150%2096%20Z%20M658%2096%20L739%20174%20L739%20191%20L658%20269%20L650%20269%20L650%20241%20L709%20182.5%20L650%20124%20L650%2096%20Z%22%20fill%3D%22%23ebe7dc%22%2F%3E%3Cpath%20transform%3D%22translate(-88%200)%20scale(1.5%201)%22%20d%3D%22M176%20108%20H272%20L287%20123%20V133%20H176%20Z%20M176%20149%20H337%20L352%20164%20V174%20H176%20Z%20M176%20189%20H352%20V199%20L337%20214%20H176%20Z%20M176%20230%20H273%20V255%20H176%20Z%20M360%20171%20H466%20V196%20H360%20Z%22%20fill%3D%22%236cc28a%22%2F%3E%3C%2Fsvg%3E">
+<script>document.documentElement.classList.add('js')</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Martian+Mono:wght@400;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper: #f6f4ee; --ink: #1f1d18; --muted: #6d685d; --rule: #e3ded2; --green: #2d7a4b; --green-soft: #cfe6d6; --code: #ece8de;
+  --serif: "Newsreader", Georgia, serif;
+  --mono: "Martian Mono", ui-monospace, Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --paper: #151410; --ink: #ebe7dc; --muted: #a29d90; --rule: #34322a; --green: #6cc28a; --green-soft: #24402e; --code: #1f1d18; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 400 19px/1.6 var(--serif); }
+a { color: inherit; text-decoration-color: var(--green); text-underline-offset: 3px; }
+a:hover { color: var(--green); }
+:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; border-radius: 2px; }
+code, kbd, pre, .mono { font-family: var(--mono); font-size: .72em; }
+code { background: var(--code); padding: .12em .35em; border-radius: 3px; }
+
+/* The page is a book page: a text column and, to its right, the margin. */
+.page { max-width: 1120px; margin: 0 auto; padding: 0 24px; display: grid; grid-template-columns: minmax(0, 40rem) minmax(0, 1fr); column-gap: 64px; }
+.page > * { grid-column: 1; }
+.page > .wide { grid-column: 1 / -1; }
+.note { grid-column: 2; grid-row: span 1; align-self: start; font-size: 15px; line-height: 1.5; color: var(--muted); border-left: 2px solid var(--green); padding-left: 14px; font-style: italic; }
+section + .note { margin-top: 112px; }
+@media (max-width: 860px) {
+  .page { grid-template-columns: minmax(0, 1fr); }
+  .note { grid-column: 1; margin: 0 0 8px; }
+  section + .note { margin-top: 20px; }
+}
+
+header.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 28px; padding-bottom: 28px; }
+.brand { display: flex; align-items: center; gap: 12px; text-decoration: none; font: 600 15px var(--mono); letter-spacing: .02em; }
+.brand svg { width: 46px; height: auto; display: block; }
+nav { display: flex; gap: 20px; font: 400 13px var(--mono); }
+nav a { text-decoration: none; color: var(--muted); }
+nav a:hover { color: var(--ink); }
+
+.hero { padding: 56px 0 24px; }
+.hero h1 { font-weight: 400; font-size: clamp(40px, 6.4vw, 76px); line-height: 1.04; letter-spacing: -.015em; margin: 0 0 28px; max-width: 14ch; }
+.lede { font-size: 22px; line-height: 1.5; margin: 0 0 32px; max-width: 34em; }
+.quote { margin: 0; }
+.quote p { margin: 0 0 6px; }
+.quote footer { font-style: normal; }
+
+.install { display: inline-flex; align-items: stretch; border: 1px solid var(--ink); border-radius: 4px; font: 400 14px var(--mono); max-width: 100%; }
+.install code { min-width: 0; }
+.install code { background: none; padding: 12px 16px; font-size: 14px; white-space: nowrap; overflow-x: auto; }
+.install code::before { content: "$ "; color: var(--muted); }
+.install button { font: inherit; border: 0; border-left: 1px solid var(--ink); background: var(--ink); color: var(--paper); padding: 0 16px; cursor: pointer; }
+.install button:hover { background: var(--green); }
+.after-install { font-size: 15px; color: var(--muted); margin: 12px 0 0; }
+
+section { padding-top: 72px; }
+h2 { font-weight: 600; font-size: 28px; line-height: 1.2; margin: 0 0 16px; letter-spacing: -.005em; }
+p { margin: 0 0 16px; }
+
+/* Measured savings: each row narrows from the "before" length to the "after" length, like the bars in the logo. */
+.measure { list-style: none; padding: 0; margin: 28px 0 0; display: grid; gap: 30px; }
+.measure li { display: grid; gap: 8px; }
+.measure .what { font-size: 17px; }
+.track { position: relative; height: 26px; }
+.track .before, .track .after { position: absolute; inset: 0 auto 0 0; clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%); }
+.track .before { width: 100%; background: var(--rule); }
+.track .after { width: var(--after); background: var(--green); transition: width 1.4s cubic-bezier(.6, 0, .2, 1) .3s; }
+.js .track .after { width: 100%; }
+.js.ready .track .after { width: var(--after); }
+.figures { font: 400 13px var(--mono); color: var(--muted); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; }
+.figures b { color: var(--green); font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { .track .after { transition: none; } }
+
+dl.features { margin: 8px 0 0; }
+dl.features dt { font-weight: 600; margin-top: 20px; }
+dl.features dd { margin: 4px 0 0; }
+
+.clients { font: 400 15px var(--mono); display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 8px 0 20px; }
+.clients span::before { content: "$ "; color: var(--muted); }
+
+table { width: 100%; border-collapse: collapse; font-size: 17px; margin: 8px 0 12px; }
+th, td { text-align: left; padding: 10px 12px 10px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 600; }
+td:first-child { color: var(--muted); }
+.fine { font-size: 14px; color: var(--muted); }
+
+ol.steps { padding: 0; margin: 8px 0 0; list-style: none; counter-reset: step; }
+ol.steps li { counter-increment: step; display: grid; grid-template-columns: 2.2em minmax(0, 1fr); margin-bottom: 18px; }
+ol.steps li::before { content: counter(step); font: 600 15px/1.9 var(--mono); color: var(--green); }
+pre { background: var(--code); padding: 14px 16px; border-radius: 4px; overflow-x: auto; margin: 8px 0 0; font-size: 14px; line-height: 1.6; }
+
+footer.bottom { margin-top: 96px; padding: 28px 0 40px; border-top: 1px solid var(--rule); font-size: 15px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="top wide">
+    <a class="brand" href="./" aria-label="toonarrow home">
+      <svg viewBox="56 90 688 185" aria-hidden="true"><path d="M142 96 L61 174 L61 191 L142 269 L150 269 L150 241 L91 182.5 L150 124 L150 96 Z M658 96 L739 174 L739 191 L658 269 L650 269 L650 241 L709 182.5 L650 124 L650 96 Z" fill="currentColor"/><path transform="translate(-88 0) scale(1.5 1)" d="M176 108 H272 L287 123 V133 H176 Z M176 149 H337 L352 164 V174 H176 Z M176 189 H352 V199 L337 214 H176 Z M176 230 H273 V255 H176 Z M360 171 H466 V196 H360 Z" style="fill: var(--green)"/></svg>
+      toonarrow
+    </a>
+    <nav aria-label="Project links">
+      <a href="https://github.com/andsigno82/toonarrow">GitHub</a>
+      <a href="https://www.npmjs.com/package/toonarrow">npm</a>
+    </nav>
+  </header>
+
+  <div class="hero">
+    <h1>Your context window is the margin.</h1>
+    <p class="lede">toonarrow is a local proxy that trims what Claude Code, Codex, OpenCode and Kora send to the model, before it reaches the provider. Your agents keep working as before; they just stop paying for noise.</p>
+    <div class="install">
+      <code id="cmd">npm install -g toonarrow &amp;&amp; toonarrow install</code>
+      <button type="button" id="copy">Copy</button>
+    </div>
+    <p class="after-install">macOS, Node.js 24 or later. Open-source under Apache-2.0, no account.</p>
+  </div>
+  <blockquote class="note quote">
+    <p>“I have discovered a truly marvelous proof of this, which this margin is too narrow to contain.”</p>
+    <footer>Pierre de Fermat, in his copy of <i>Arithmetica</i></footer>
+  </blockquote>
+
+  <section>
+    <h2>Measured on real sessions</h2>
+    <p>Coding agents resend the whole conversation on every turn: system prompt, tool definitions, every file they read, every command output. Most of it the model does not need verbatim.</p>
+    <ul class="measure">
+      <li>
+        <span class="what">OpenCode system prompt with 688 installed skills</span>
+        <div class="track" style="--after: 29.9%" role="img" aria-label="From 85,436 to 25,559 input tokens"><div class="before"></div><div class="after"></div></div>
+        <span class="figures"><span>85,436 → 25,559 input tokens</span><b>−70%</b></span>
+      </li>
+      <li>
+        <span class="what">Shell output from a TypeScript monorepo: git log, grep, tsc, ls -la</span>
+        <div class="track" style="--after: 56%" role="img" aria-label="Down to 56% of the original size"><div class="before"></div><div class="after"></div></div>
+        <span class="figures"><span>100% → 56% of the original size</span><b>−44%</b></span>
+      </li>
+      <li>
+        <span class="what">Output tokens of Claude Code with the short-answer rule</span>
+        <div class="track" style="--after: 64.6%" role="img" aria-label="From 2,606 to 1,683 output tokens on average"><div class="before"></div><div class="after"></div></div>
+        <span class="figures"><span>2,606 → 1,683 tokens, average of 2 paired runs</span><b>−35%</b></span>
+      </li>
+    </ul>
+  </section>
+  <p class="note">The skill listing is the big one: with hundreds of skills installed, their descriptions alone are most of the prompt.</p>
+
+  <section>
+    <h2>What it trims</h2>
+    <dl class="features">
+      <dt>Shell output</dt>
+      <dd>Per-command rules for <code>ls -l</code>, <code>git log</code>, <code>grep</code>, <code>tsc</code>, test runners, package installs and more. Pipes and <code>&amp;&amp;</code> chains are left alone, and every trimmed output tells the model how to get the raw one.</dd>
+      <dt>Skill listings</dt>
+      <dd>Skills you actually use keep their description; the rest are listed by name and still load on demand. <code>toonarrow skills --write</code> picks them from your own history.</dd>
+      <dt>File tools</dt>
+      <dd>An MCP server with <code>Search</code>, which reads several files per call and folds grep results, and <code>Edit</code>, which applies batched edits atomically.</dd>
+      <dt>Long answers</dt>
+      <dd>A short-answer rule added to the main agent's system prompt.</dd>
+    </dl>
+  </section>
+  <p class="note">A local dashboard and <code>toonarrow stats</code> show what was saved, in tokens, per day, session, model and client.</p>
+
+  <section>
+    <h2>Nothing else changes</h2>
+    <p>Every rewrite is a pure, deterministic function of the block it touches, so the same history produces the same bytes on every request and your provider's prompt cache keeps hitting.</p>
+    <p>When toonarrow is not running, your agents run exactly as if it were not installed. Nothing leaves your machine except the requests your agents were already sending: no account, no telemetry.</p>
+    <p>Keep typing the commands you already use:</p>
+    <div class="clients"><span>claude</span><span>codex</span><span>opencode</span><span>kora</span></div>
+  </section>
+  <p class="note">Small shims first in your PATH check whether the proxy is up, then hand over to the real client.</p>
+
+  <section>
+    <h2>toonarrow and Fermat's Last Token</h2>
+    <p>Fermat's Last Token showed that a local proxy and better file tools can cut an agent's bill. toonarrow takes the same idea to every coding agent, in the open.</p>
+    <table>
+      <thead><tr><td></td><th scope="col">toonarrow</th><th scope="col">Fermat's Last Token</th></tr></thead>
+      <tbody>
+        <tr><td>Source</td><td>Open source, Apache-2.0</td><td>Proprietary</td></tr>
+        <tr><td>Account</td><td>None</td><td>Required</td></tr>
+        <tr><td>Clients</td><td>Claude Code, Codex, OpenCode, Kora</td><td>Claude Code</td></tr>
+        <tr><td>Dashboard</td><td>Local, in tokens</td><td>Cloud</td></tr>
+      </tbody>
+    </table>
+    <p class="fine">Based on public information as of October 2026. toonarrow is not affiliated with or endorsed by Quotient Labs; Fermat's Last Token is their product and trademark.</p>
+  </section>
+
+  <section>
+    <h2>Install</h2>
+    <ol class="steps">
+      <li><div>Install the package and the background service:<pre>npm install -g toonarrow
+toonarrow install</pre></div></li>
+      <li><div>Open a new shell, so the shims come first in your PATH.</div></li>
+      <li><div>Use your agents as usual, then see what was saved with <code>toonarrow dashboard</code>.</div></li>
+    </ol>
+    <p><code>toonarrow uninstall</code> removes the service, the command and the shims; your usage data stays in <code>~/.toonarrow</code>.</p>
+  </section>
+
+  <footer class="bottom wide">
+    <span>toonarrow, Apache-2.0</span>
+    <a href="https://github.com/andsigno82/toonarrow">Source, issues and documentation on GitHub</a>
+  </footer>
+</div>
+<script>
+requestAnimationFrame(() => requestAnimationFrame(() => document.documentElement.classList.add('ready')));
+const copy = document.getElementById('copy');
+copy.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(document.getElementById('cmd').textContent);
+    copy.textContent = 'Copied';
+  } catch {
+    copy.textContent = 'Select and copy';
+  }
+  setTimeout(() => { copy.textContent = 'Copy'; }, 2000);
+});
+</script>
+</body>
+</html>
