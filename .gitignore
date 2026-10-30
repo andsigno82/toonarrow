@@ -1,0 +1,6 @@
+node_modules/
+
+# Private notes: maintainer diary, competitive analysis, machine-specific measurements.
+CLAUDE.local.md
+documentation/diary/
+documentation/private/

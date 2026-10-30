@@ -1,0 +1,25 @@
+{
+  "name": "toonarrow",
+  "version": "0.1.0",
+  "description": "The open-source, multi-CLI alternative to Fermat's Last Token: a local context-compression proxy for Claude Code, Codex, OpenCode and Kora",
+  "license": "Apache-2.0",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "serve": "node src/cli.ts serve",
+    "test": "node --test 'test/**/*.test.ts'",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@vscode/tree-sitter-wasm": "^0.3.1",
+    "zod": "^4.6.7"
+  }
+}
