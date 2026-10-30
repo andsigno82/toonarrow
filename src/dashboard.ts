@@ -1,3 +1,13 @@
+/** Logo mark from assets/logo: the angle brackets and the narrowing bars, in the 800-wide logo coordinates. */
+const MARK_BRACKETS = 'M142 96 L61 174 L61 191 L142 269 L150 269 L150 241 L91 182.5 L150 124 L150 96 Z M658 96 L739 174 L739 191 L658 269 L650 269 L650 241 L709 182.5 L650 124 L650 96 Z';
+const MARK_BARS = 'M176 108 H272 L287 123 V133 H176 Z M176 149 H337 L352 164 V174 H176 Z M176 189 H352 V199 L337 214 H176 Z M176 230 H273 V255 H176 Z M360 171 H466 V196 H360 Z';
+const markPaths = (brackets: string, bars: string) =>
+  `<path d="${MARK_BRACKETS}" fill="${brackets}"/><path transform="translate(-88 0) scale(1.5 1)" d="${MARK_BARS}" fill="${bars}"/>`;
+/** Same as assets/logo/icon-dark.svg, inlined so the page stays self-contained. */
+const FAVICON = 'data:image/svg+xml,' + encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -217 800 800"><rect x="0" y="-217" width="800" height="800" fill="#151410"/>${markPaths('#ebe7dc', '#6cc28a')}</svg>`,
+);
+
 /** Local dashboard served by the proxy at /_toonarrow/. Self-contained: inline CSS, SVG charts, data from api/summary. */
 export const DASHBOARD_HTML = `<!doctype html>
 <html lang="it">
@@ -5,6 +15,7 @@ export const DASHBOARD_HTML = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>toonarrow dashboard</title>
+<link rel="icon" type="image/svg+xml" href="${FAVICON}">
 <style>
 :root {
   --bg: #f6f4ee; --surface: #fffdf8; --ink: #1f1d18; --muted: #6d685d; --line: #e3ded2; --accent: #2d7a4b;
@@ -25,7 +36,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 syst
 .mono, .label, th { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
 .wrap { max-width: 1080px; margin: 0 auto; padding: 24px 16px 48px; }
 header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; justify-content: space-between; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
-.brand { font-family: ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .12em; text-transform: uppercase; font-size: 13px; }
+.brand { display: flex; align-items: center; gap: 10px; font-family: ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .12em; text-transform: uppercase; font-size: 13px; }
+.brand svg { width: 52px; flex: none; }
 .brand b { color: var(--accent); }
 .range { display: flex; gap: 4px; }
 .range button { font: 12px ui-monospace, Menlo, monospace; padding: 6px 10px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); border-radius: 6px; cursor: pointer; }
@@ -64,7 +76,7 @@ td.multi { white-space: normal; min-width: 140px; }
 <body>
 <div class="wrap">
   <header>
-    <div class="brand"><b>toonarrow</b> &nbsp;context compression proxy</div>
+    <div class="brand"><svg viewBox="56 90 688 185" aria-hidden="true">${markPaths('var(--ink)', 'var(--accent)')}</svg><span><b>toonarrow</b> &nbsp;context compression proxy</span></div>
     <div class="range" role="group" aria-label="Periodo">
       <button data-days="1">oggi</button><button data-days="7">7 giorni</button><button data-days="30">30 giorni</button><button data-days="90">90 giorni</button>
     </div>
