@@ -4,7 +4,7 @@
   "description": "The open-source, multi-CLI alternative to Fermat's Last Token: a local context-compression proxy for Claude Code, Codex, OpenCode and Kora",
   "license": "Apache-2.0",
   "author": "Andrea <andsigno82@gmail.com>",
-  "homepage": "https://github.com/andsigno82/toonarrow#readme",
+  "homepage": "https://andsigno82.github.io/toonarrow/",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/andsigno82/toonarrow.git"
