@@ -71,7 +71,7 @@ Quotient Labs; Fermat's Last Token is their product and trademark.*
 Requirements: macOS, Node.js >= 24.
 
 ```bash
-npm install -g toonarrow
+npm install -g https://github.com/andsigno82/toonarrow/releases/download/v0.1.0/toonarrow-0.1.0.tgz
 toonarrow install
 ```
 
