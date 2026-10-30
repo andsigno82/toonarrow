@@ -67,7 +67,7 @@ Shell tools whose results are compressed:
 | Client | Call | Result |
 |---|---|---|
 | Claude Code | `tool_use` `Bash`, `input.command` | `tool_result.content`, string or one text block |
-| Codex | `custom_tool_call` `exec` with a single `exec_command({cmd})`; `function_call` `exec_command`/`shell` | `*_output`: JSON `{output}` or `...Output:\n<text>` |
+| Codex | `custom_tool_call` `exec` scripts made only of `text(await tools.exec_command({cmd}))` statements; `function_call` `exec_command`/`shell` | `*_output`: a header, then one JSON `{output}` per call in order, or `...Output:\n<text>`. Scripts with any other statement pass through |
 | OpenCode 2.x | `shell`, `input.command` (Chat, Anthropic and Responses wires) | `role: tool` message, `tool_result` or `function_call_output` |
 | Kora | `executeCommand`, `{command, readOnly}` | JSON `{success, stdout, stderr, exit_code}`: `stdout` and `stderr` are compressed |
 
@@ -75,7 +75,8 @@ Skill listings: OpenCode `<available_skills>` (XML entries `<id>/<name>/<descrip
 (lines `- **name**: description`). Unused skills are collapsed into one line of names; they stay loadable by name.
 
 Session identity, in order: `x-claude-code-session-id`, Claude Code `metadata.user_id`, `session_id` header (Codex),
-`x-opencode-session-id`, `prompt_cache_key`, `session_id` body field (Kora).
+`session_id` body field (Kora, which may also send `x-opencode-session-id` from a session-header rule),
+`x-opencode-session-id`, `prompt_cache_key`.
 
 ## Usage accounting
 
@@ -85,6 +86,8 @@ Session identity, in order: `x-claude-code-session-id`, Claude Code `metadata.us
   that request.
 - An error event inside a 2xx stream (for example a gateway 429 relayed as an SSE event) is recorded as
   `stream error: ...` and counted as a failed request.
+- Only inference requests (Anthropic Messages, Responses, Chat Completions) enter totals, sessions, models and
+  clients. Model lists, health probes and other paths are only counted, as "not inference".
 
 ## Client integration
 
