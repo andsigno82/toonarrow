@@ -1,15 +1,57 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compressBashOutput, dedupeRuns, isCompound, normalize, parseCommand } from '../src/compress/shell/index.ts';
+import { compressBashOutput, dedupeRuns, isCompound, normalize, parseCommand, ruleTarget, splitChain } from '../src/compress/shell/index.ts';
 
 const rep = (n: number, f: (i: number) => string): string => Array.from({ length: n }, (_, i) => f(i)).join('\n');
 const body = (text: string): string => text.slice(0, text.lastIndexOf('\n[toonarrow '));
 
-test('compound commands are never compressed', () => {
+test('compound commands are recognised', () => {
   for (const c of ['ls | head', 'cd x && ls -la', 'ls > out', 'echo $(pwd)', 'a; b', 'ls `pwd`']) assert.equal(isCompound(c), true, c);
   for (const c of ['ls -la', "grep -rn 'a|b' src", 'git log --format="%h|%s"']) assert.equal(isCompound(c), false, c);
+});
+
+test('`| cat` is the escape hatch and is never compressed', () => {
   const big = rep(50, (i) => `-rw-r--r--  1 u  staff  ${i}  1 gen 10:00 f${i}`);
-  assert.deepEqual(compressBashOutput('ls -la | cat', big), { text: big, rule: 'compound', applied: false });
+  assert.deepEqual(compressBashOutput('ls -la | cat', big), { text: big, rule: 'raw-requested', applied: false });
+  assert.equal(compressBashOutput('(cd x && ls -la) | cat ', big).rule, 'raw-requested');
+});
+
+test('splitChain splits on top-level && and ; only', () => {
+  assert.deepEqual(splitChain('cd "a && b" && git status; echo \'x;y\''), ['cd "a && b"', 'git status', "echo 'x;y'"]);
+  assert.deepEqual(splitChain('a || b | c'), ['a || b | c']);
+  assert.deepEqual(splitChain('echo a\\;b'), ['echo a\\;b']);
+});
+
+test('ruleTarget skips setup steps and keeps ambiguous chains generic', () => {
+  assert.equal(ruleTarget('cd /repo && git status'), 'git status');
+  assert.equal(ruleTarget('source .venv/bin/activate && cd app && pytest -q 2>&1'), 'pytest -q');
+  assert.equal(ruleTarget('export CI=1; set -e; npx vitest run'), 'npx vitest run');
+  assert.equal(ruleTarget('source ~/.nvm/nvm.sh && nvm use 24 && npm test'), 'npm test');
+  assert.equal(ruleTarget('git status'), 'git status');
+  for (const c of ['cd - && ls -la', 'git add . && git status', 'cd x && git diff | head -50', 'for f in *; do wc -l $f; done', 'cd x || exit 1']) {
+    assert.equal(ruleTarget(c), undefined, c);
+  }
+});
+
+test('setup chains use the command rules; other compound output only gets the lossless cleanup', () => {
+  const status = [
+    'On branch main',
+    'Changes not staged for commit:',
+    '  (use "git add <file>..." to update what will be committed)',
+    '  (use "git restore <file>..." to discard changes in working directory)',
+    ...Array.from({ length: 4 }, (_, i) => `\tmodified:   f${i}.ts`),
+    ...Array.from({ length: 30 }, () => '  (use "git add <file>..." to include in what will be committed)'),
+  ].join('\n');
+  const r = compressBashOutput('cd /repo && git status', status);
+  assert.equal(r.rule, 'git-status');
+  assert.ok(r.text.endsWith('piped through `| cat`]') === false && r.text.endsWith('wrapped as `( … ) | cat`]'));
+  const listing = rep(40, (i) => `-rw-r--r--  1 u  staff  ${i}  1 gen 10:00 f${i}`) + '\n' + rep(10, () => 'same line');
+  const g = compressBashOutput('ls -la | grep f', listing);
+  assert.equal(g.rule, 'generic:low-gain');
+  const dup = rep(40, () => 'retrying connection to localhost:5432');
+  const d = compressBashOutput('for i in 1 2; do ./probe; done', dup);
+  assert.equal(d.rule, 'generic');
+  assert.ok(d.text.startsWith('retrying connection to localhost:5432  (×40)\n'));
 });
 
 test('parseCommand skips env assignments and runner prefixes', () => {

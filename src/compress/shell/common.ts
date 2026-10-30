@@ -34,6 +34,53 @@ export function isCompound(command: string): boolean {
   return /[|;&<>`\n]|\$\(/.test(unquoted);
 }
 
+/** Top-level `&&` and `;` segments of a command line; quotes and backslash escapes are respected. */
+export function splitChain(command: string): string[] {
+  const parts: string[] = [];
+  let quote = '';
+  let start = 0;
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i]!;
+    if (c === '\\' && quote !== "'") i++;
+    else if (quote) {
+      if (c === quote) quote = '';
+    } else if (c === "'" || c === '"') quote = c;
+    else if (c === ';' || (c === '&' && command[i + 1] === '&')) {
+      parts.push(command.slice(start, i).trim());
+      if (c === '&') i++;
+      start = i + 1;
+    }
+  }
+  parts.push(command.slice(start).trim());
+  return parts.filter(Boolean);
+}
+
+/**
+ * Chain steps that print nothing on success, so the output is the last command's: `cd dir`, `export`, `set`, `unset`,
+ * `source`/`.` of an environment script. `nvm use` prints one line, which the rules tolerate. A failing step stops an
+ * `&&` chain with a short error that no rule matches.
+ */
+function isSetupStep(step: string): boolean {
+  if (isCompound(step)) return false;
+  const tokens = step.split(/\s+/);
+  const [prog, first] = tokens;
+  if (prog === 'cd') return tokens.length === 2 && first !== '-';
+  if (prog === 'nvm') return first === 'use';
+  return ['export', 'set', 'unset', 'source', '.', 'ulimit', 'umask'].includes(prog!);
+}
+
+/**
+ * The command whose output the rules may parse: the last step of a chain whose other steps are setup, with a
+ * trailing `2>&1` dropped. Undefined when the output's origin is ambiguous (pipes, loops, several real commands):
+ * such output still gets the lossless generic cleanup, never a command-specific rule.
+ */
+export function ruleTarget(command: string): string | undefined {
+  const steps = splitChain(command);
+  const last = steps.pop()?.replace(/\s+2>&1$/, '');
+  if (last === undefined || !steps.every(isSetupStep) || isCompound(last)) return undefined;
+  return last;
+}
+
 export function parseCommand(command: string): Cmd {
   const tokens = (command.match(/'[^']*'|"(?:\\.|[^"\\])*"|\S+/g) ?? []).map((t) => t.replace(/^(['"])(.*)\1$/s, '$2'));
   while (tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0]!)) tokens.shift();

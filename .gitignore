@@ -5,3 +5,4 @@ dist/
 CLAUDE.local.md
 documentation/diary/
 documentation/private/
+.claude/worktrees/
