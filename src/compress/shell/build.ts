@@ -18,6 +18,7 @@ const TSC_LINE = /^(.+?)\((\d+),(\d+)\): (error|warning) (TS\d+): (.*)$/;
 
 export const tsc: Rule = {
   name: 'tsc',
+  byFormat: true,
   match: (_cmd, out) => /^.+\(\d+,\d+\): error TS\d+:/m.test(out),
   apply(lines) {
     const out: string[] = [];

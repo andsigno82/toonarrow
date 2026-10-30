@@ -230,3 +230,37 @@ test('compression is deterministic', () => {
   const out = rep(40, (i) => `src/x/File${i % 4}.ts:${i}:needle ${i}`);
   assert.equal(compressBashOutput('grep -rn needle src', out).text, compressBashOutput('grep -rn needle src', out).text);
 });
+
+test('git diff keeps hunks byte for byte and drops only redundant header lines', () => {
+  const file = (name: string): string[] => [
+    `diff --git a/${name} b/${name}`,
+    'index 0123abc..4567def 100644',
+    `--- a/${name}`,
+    `+++ b/${name}`,
+    '@@ -1,4 +1,4 @@',
+    ' a',
+    ' ',
+    '-b\t',
+    '+b  ',
+    ' c',
+  ];
+  const added = ['diff --git a/new.ts b/new.ts', 'new file mode 100644', 'index 0000000..89abcde', '--- /dev/null', '+++ b/new.ts', '@@ -0,0 +1 @@', '+x'];
+  const renamed = ['diff --git a/old name.ts b/new name.ts', 'similarity index 90%', 'rename from old name.ts', 'rename to new name.ts', 'index 1111111..2222222 100644', '--- a/old name.ts', '+++ b/new name.ts', '@@ -1 +1 @@', '-y', '+z'];
+  const out = [...file('a.ts'), ...file('b.ts'), ...added, ...renamed].join('\n');
+  const r = compressBashOutput('git diff', out);
+  assert.equal(r.rule, 'git-diff');
+  assert.equal(
+    body(r.text),
+    [
+      'diff --git a/a.ts b/a.ts', '@@ -1,4 +1,4 @@', ' a', ' ', '-b\t', '+b  ', ' c',
+      'diff --git a/b.ts b/b.ts', '@@ -1,4 +1,4 @@', ' a', ' ', '-b\t', '+b  ', ' c',
+      'diff --git a/new.ts b/new.ts', 'new file mode 100644', '@@ -0,0 +1 @@', '+x',
+      'diff --git a/old name.ts b/new name.ts', 'similarity index 90%', 'rename from old name.ts', 'rename to new name.ts', '@@ -1 +1 @@', '-y', '+z',
+    ].join('\n'),
+  );
+});
+
+test('a diff with nothing to drop is passed through, never given the whitespace-trimming generic cleanup', () => {
+  const out = ['diff --git a/x b/x', '@@ -1,12 +1,12 @@', ...Array.from({ length: 12 }, () => '+same line  ')].join('\n');
+  assert.deepEqual(compressBashOutput('git diff', out), { text: out, rule: 'git-diff:unchanged', applied: false });
+});

@@ -16,6 +16,28 @@ const rep = (n: number, f: (i: number) => string): string => Array.from({ length
 
 export const SHELL_SAMPLES: ShellSample[] = [
   {
+    name: 'git diff',
+    rule: 'git-diff',
+    tool: 'git 2.50',
+    command: 'cd /repo && git diff | head -200',
+    output: rep(4, (i) =>
+      [
+        `diff --git a/src/mod${i}.ts b/src/mod${i}.ts`,
+        `index 1a2b3c${i}..4d5e6f${i} 100644`,
+        `--- a/src/mod${i}.ts`,
+        `+++ b/src/mod${i}.ts`,
+        `@@ -10,7 +10,7 @@ export function f${i}() {`,
+        '   const a = 1;',
+        ' ',
+        '-  return a;',
+        '+  return a + 1;  ',
+        ' ',
+        '   // end',
+      ].join('\n'),
+    ),
+    signals: ['diff --git a/src/mod0.ts b/src/mod0.ts', '@@ -10,7 +10,7 @@ export function f0() {', '-  return a;', '+  return a + 1;  ', '\n \n'],
+  },
+  {
     name: 'ls -la',
     rule: 'ls-long',
     tool: 'macOS ls',

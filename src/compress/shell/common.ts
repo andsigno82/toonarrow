@@ -22,11 +22,25 @@ export interface Rule {
   match(cmd: Cmd, out: string): boolean;
   /** Returns null when the rule does not recognise the output after all. */
   apply(lines: string[], cmd: Cmd): string[] | null;
+  /**
+   * Recognised by the output format alone and rewrites only lines of that format: safe on output whose origin is
+   * ambiguous (pipes, several commands). Such rules match an empty Cmd there.
+   */
+  byFormat?: boolean;
+  /**
+   * Whitespace and repeated lines are content (diffs): the rule gets the output split on newlines with only ANSI
+   * codes removed, and its result is not deduplicated.
+   */
+  verbatim?: boolean;
+  /** Gate for this rule's gain (default MAX_RATIO): lossless rules can accept a smaller gain. */
+  maxRatio?: number;
 }
 
 export const MAX_LINE = 240;
 
 const ANSI = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
+
+export const stripAnsi = (text: string): string => text.replace(ANSI, '');
 
 /** Pipes, chains, redirections and substitutions make the output's origin ambiguous. */
 export function isCompound(command: string): boolean {
@@ -111,7 +125,7 @@ export const plural = (n: number, word: string): string => `${n} ${word}${n === 
 
 /** Lossless cleanup applied to every output: ANSI codes, carriage-return redraws, trailing blanks. */
 export function normalize(output: string): string[] {
-  const lines = output.replace(ANSI, '').split('\n');
+  const lines = stripAnsi(output).split('\n');
   const out = lines.map((l) => {
     const line = l.replace(/\s+$/, '');
     const cr = line.lastIndexOf('\r');

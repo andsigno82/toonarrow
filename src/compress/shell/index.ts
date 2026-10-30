@@ -1,5 +1,6 @@
 /** Deterministic, rule-based compression of shell command output: the rule registry and its entry point. */
-import { type BashCompression, type Rule, dedupeRuns, isCompound, normalize, parseCommand, ruleTarget } from './common.ts';
+import { type BashCompression, type Cmd, type Rule, dedupeRuns, isCompound, normalize, parseCommand, ruleTarget, stripAnsi } from './common.ts';
+import { gitDiff } from './diff.ts';
 import { cargo, jsInstall, make, pip, tsc } from './build.ts';
 import { findList, grep, lsLong } from './files.ts';
 import { gitLog, gitStatus } from './git.ts';
@@ -12,7 +13,9 @@ const MIN_LINES = 12;
 const MAX_RATIO = 0.8;
 
 /** Output-signature rules come first: they recognise the tool whatever wrapper ran it. */
-const RULES: Rule[] = [pytest, jsTestRunner, tsc, lsLong, gitStatus, gitLog, grep, findList, goTest, cargo, jsInstall, pip, make];
+const RULES: Rule[] = [gitDiff, pytest, jsTestRunner, tsc, lsLong, gitStatus, gitLog, grep, findList, goTest, cargo, jsInstall, pip, make];
+
+const NO_CMD: Cmd = { prog: '', sub: '', args: [] };
 
 export const RULE_NAMES: readonly string[] = RULES.map((r) => r.name);
 
@@ -27,22 +30,24 @@ export function compressBashOutput(command: string, output: string): BashCompres
   if (lines.length < MIN_LINES) return passthrough(output, 'short');
 
   const target = ruleTarget(command);
-  let rule = 'generic';
+  // Ambiguous origin (pipes, several commands): only rules that work on the output format alone.
+  const cmd = target === undefined ? NO_CMD : parseCommand(target);
+  let chosen: Rule | undefined;
   let result: string[] | null = null;
-  if (target !== undefined) {
-    const cmd = parseCommand(target);
-    for (const r of RULES) {
-      if (!r.match(cmd, output)) continue;
-      result = r.apply(lines, cmd);
-      if (result) {
-        rule = r.name;
-        break;
-      }
+  for (const r of RULES) {
+    if ((target === undefined && !r.byFormat) || !r.match(cmd, output)) continue;
+    result = r.apply(r.verbatim ? stripAnsi(output).split('\n') : lines, cmd);
+    if (result) {
+      chosen = r;
+      break;
     }
+    // Whitespace-sensitive output the rule declined (a diff with nothing to drop) must not get the generic cleanup.
+    if (r.verbatim) return passthrough(output, `${r.name}:unchanged`);
   }
+  const rule = chosen?.name ?? 'generic';
   const hatch = isCompound(command) ? 'wrapped as `( … ) | cat`' : 'piped through `| cat`';
-  const body = dedupeRuns(result ?? lines).join('\n');
+  const body = (chosen?.verbatim ? result! : dedupeRuns(result ?? lines)).join('\n').replace(/\n+$/, '');
   const text = `${body}\n[toonarrow ${rule}: ${output.length}→${body.length} chars; for raw output rerun the command ${hatch}]`;
-  if (text.length > output.length * MAX_RATIO) return passthrough(output, `${rule}:low-gain`);
+  if (text.length > output.length * (chosen?.maxRatio ?? MAX_RATIO)) return passthrough(output, `${rule}:low-gain`);
   return { text, rule, applied: true };
 }
