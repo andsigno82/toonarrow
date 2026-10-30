@@ -25,9 +25,17 @@ client (Claude Code / Codex / OpenCode / Kora)
    yields the same bytes on every request, and a second pass changes nothing, so the provider's cached prefix
    survives. Each transformation has a second-pass test.
 2. **Fail-soft.** An unparsable body, an unknown format or a low gain is forwarded unchanged.
-3. **Escape hatch.** Every compressed shell output ends with `[toonarrow <rule>: N->M chars; ... | cat]`. Compound
-   commands (pipes, `&&`, redirects) are never compressed, so `cmd | cat` always returns the raw output.
-4. **Never a dependency.** With the proxy off, every client runs exactly as without toonarrow (see Client
+3. **Escape hatch.** Every compressed shell output ends with `[toonarrow <rule>: N->M chars; ... | cat]`. A command
+   ending in `| cat` is never compressed, so `cmd | cat` (or `( … ) | cat` for a chain) always returns the raw output.
+4. **Rules only where the origin is certain.** Command rules apply to a simple command, or to the last step of a
+   chain whose other steps print nothing on success (`cd dir`, `export`, `set`, `unset`, `source`, `nvm use`). Any
+   other compound output (pipes, loops, several commands) gets only the lossless generic cleanup (ANSI codes, redraws,
+   repeated lines with a count).
+5. **Diagnostics survive.** Rules never drop error and warning lines, failing test names or `file:line` references;
+   each rule has a sample in `test/fixtures/shell-samples.ts` and property tests check that its signal lines survive.
+6. **JSON bytes are kept.** Inside JSON tool results only the edited string fields change (`src/compress/json.ts`);
+   the payload is never re-serialized.
+7. **Never a dependency.** With the proxy off, every client runs exactly as without toonarrow (see Client
    integration).
 
 ## Modules
@@ -40,11 +48,13 @@ client (Claude Code / Codex / OpenCode / Kora)
 | `src/meta.ts` | session and client identity, body decoding (gzip/br/zstd), header redaction |
 | `src/compress/shell/` | per-command rules by family (`files`, `git`, `tests`, `build`) and the registry in `index.ts`: ls -l, git log/status, grep/rg, find/fd, pytest, vitest/jest, tsc, go test, cargo, npm/pip install, make |
 | `src/compress/request.ts` | shell call/result pairing for Anthropic Messages, Responses API and Chat Completions |
+| `src/compress/json.ts` | byte-preserving JSON edits: in-place replacement of top-level string fields, whitespace-only minify |
 | `src/compress/skills.ts` | skill listings: full entry for skills in `compress.keepSkills`, names only for the rest |
 | `src/skill-usage.ts` | skill usage from local history (OpenCode database, Claude Code transcripts, Kora sessions), for `toonarrow skills` |
 | `src/ledger.ts`, `src/report.ts` | JSONL usage ledger; aggregation shared by `toonarrow stats` and the dashboard |
 | `src/dashboard.ts` | local dashboard page served at `/_toonarrow/` |
 | `src/launch.ts` | client launchers, shims, the Claude Code `PreToolUse` hook |
+| `src/platform/` | what differs per OS: background service, `toonarrow` wrapper, shim scripts, shell rc block, opening a URL, executable lookup; macOS in `darwin.ts`, other systems not supported yet |
 | `src/mcp/*` | MCP stdio server with `Search` and `Edit` (multi-file reads, folded grep, tree-sitter outlines, read-gate) |
 | `src/cli.ts` | `serve`, `status`, `stats`, `dashboard`, `skills`, `install`/`uninstall`, `env`, `mcp`, `hook`, launchers |
 
