@@ -87,7 +87,7 @@ export function envWithPath(env: NodeJS.ProcessEnv, path: string): NodeJS.Proces
   return { ...env, [key]: path };
 }
 
-/** Shell rc text with the toonarrow PATH block, see platform/darwin.ts. */
+/** Shell rc text with the toonarrow PATH block, see platform/posix.ts. */
 export const withShimPathBlock = (text: string, add: boolean, shimDir: string = SHIM_DIR): string =>
   currentPlatform().withShimPathBlock(text, add, shimDir);
 

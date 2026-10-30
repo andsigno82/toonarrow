@@ -1,22 +1,28 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { launchdPlist, wrapperScript } from '../src/platform/darwin.ts';
+import { launchdPlist } from '../src/platform/darwin.ts';
+import { wrapperScript } from '../src/platform/posix.ts';
 import { currentPlatform } from '../src/platform/index.ts';
 import { envWithPath } from '../src/launch.ts';
 
 const cmd = { execPath: '/opt/node/bin/node', cliPath: '/opt/toonarrow/src/cli.ts' };
 
-test('linux and win32: service, wrapper, shim and rc methods fail with a clear error', () => {
+test('linux and win32: service and rc methods fail with a clear error; linux shares the POSIX shims', () => {
   for (const platform of ['linux', 'win32'] as const) {
     const p = currentPlatform(platform);
     const message = `toonarrow install is not supported on ${platform} yet`;
     assert.throws(() => p.installService(cmd, '/logs'), { message });
     assert.throws(() => p.removeService(), { message });
     assert.throws(() => p.wrapperPath(), { message });
-    assert.throws(() => p.wrapperScript(cmd), { message });
     assert.throws(() => p.shellRc(), { message });
-    assert.throws(() => p.withShimPathBlock('', true, '/h/bin'), { message });
-    assert.throws(() => p.shimScript('kora', cmd), { message });
+    if (platform === 'win32') {
+      assert.throws(() => p.wrapperScript(cmd), { message });
+      assert.throws(() => p.withShimPathBlock('', true, '/h/bin'), { message });
+      assert.throws(() => p.shimScript('kora', cmd), { message });
+    } else {
+      assert.equal(p.shimScript('kora', cmd), currentPlatform('darwin').shimScript('kora', cmd));
+      assert.equal(p.withShimPathBlock('', true, '/h/bin'), currentPlatform('darwin').withShimPathBlock('', true, '/h/bin'));
+    }
   }
 });
 
