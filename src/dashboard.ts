@@ -10,7 +10,7 @@ const FAVICON = 'data:image/svg+xml,' + encodeURIComponent(
 
 /** Local dashboard served by the proxy at /_toonarrow/. Self-contained: inline CSS, SVG charts, data from api/summary. */
 export const DASHBOARD_HTML = `<!doctype html>
-<html lang="it">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -77,8 +77,11 @@ td.multi { white-space: normal; min-width: 140px; }
 <div class="wrap">
   <header>
     <div class="brand"><svg viewBox="56 90 688 185" aria-hidden="true">${markPaths('var(--ink)', 'var(--accent)')}</svg><span><b>toonarrow</b> &nbsp;context compression proxy</span></div>
-    <div class="range" role="group" aria-label="Periodo">
-      <button data-days="1">oggi</button><button data-days="7">7 giorni</button><button data-days="30">30 giorni</button><button data-days="90">90 giorni</button>
+    <div class="range" role="group" data-i18n-label="period">
+      <button data-days="1" data-i18n="today"></button><button data-days="7" data-i18n="d7"></button><button data-days="30" data-i18n="d30"></button><button data-days="90" data-i18n="d90"></button>
+    </div>
+    <div class="range" role="group" data-i18n-label="language">
+      <button data-lang="it" lang="it">IT</button><button data-lang="en" lang="en">EN</button>
     </div>
     <div class="updated" id="updated"></div>
   </header>
@@ -87,61 +90,111 @@ td.multi { white-space: normal; min-width: 140px; }
   <p class="sub" id="sub"></p>
 
   <div class="cards">
-    <div class="card hero"><div class="label">Token risparmiati (stima)</div><div class="value" id="c-saved">-</div><div class="note" id="c-saved-note"></div></div>
-    <div class="card"><div class="label">Token di prompt inviati</div><div class="value" id="c-prompt">-</div><div class="note" id="c-prompt-note"></div></div>
-    <div class="card"><div class="label">Cache hit</div><div class="value" id="c-hit">-</div><div class="note">cache read / token di prompt</div></div>
-    <div class="card"><div class="label">Richieste</div><div class="value" id="c-req">-</div><div class="note" id="c-req-note"></div></div>
+    <div class="card hero"><div class="label" data-i18n="saved"></div><div class="value" id="c-saved">-</div><div class="note" id="c-saved-note"></div></div>
+    <div class="card"><div class="label" data-i18n="promptSent"></div><div class="value" id="c-prompt">-</div><div class="note" id="c-prompt-note"></div></div>
+    <div class="card"><div class="label">Cache hit</div><div class="value" id="c-hit">-</div><div class="note" data-i18n="hitNote"></div></div>
+    <div class="card"><div class="label" data-i18n="requests"></div><div class="value" id="c-req">-</div><div class="note" id="c-req-note"></div></div>
   </div>
 
   <div class="panel">
-    <h2>Token risparmiati per giorno</h2>
-    <svg id="chart-saved" viewBox="0 0 1000 240" role="img" aria-label="Token risparmiati per giorno"></svg>
+    <h2 data-i18n="savedPerDay"></h2>
+    <svg id="chart-saved" viewBox="0 0 1000 240" role="img" data-i18n-label="savedPerDay"></svg>
     <div class="legend" id="legend-saved"></div>
   </div>
 
   <div class="panel">
-    <h2>Token consumati per giorno</h2>
-    <svg id="chart-usage" viewBox="0 0 1000 240" role="img" aria-label="Token consumati per giorno"></svg>
+    <h2 data-i18n="usedPerDay"></h2>
+    <svg id="chart-usage" viewBox="0 0 1000 240" role="img" data-i18n-label="usedPerDay"></svg>
     <div class="legend" id="legend-usage"></div>
   </div>
 
   <div class="panel">
-    <h2>Sessioni recenti</h2>
+    <h2 data-i18n="recentSessions"></h2>
     <div class="table-wrap"><table id="t-sessions"></table></div>
   </div>
 
-  <div class="panel"><h2>Per modello</h2><div class="table-wrap"><table id="t-models"></table></div></div>
-  <div class="panel"><h2>Per client</h2><div class="table-wrap"><table id="t-clients"></table></div></div>
+  <div class="panel"><h2 data-i18n="byModel"></h2><div class="table-wrap"><table id="t-models"></table></div></div>
+  <div class="panel"><h2 data-i18n="byClient"></h2><div class="table-wrap"><table id="t-clients"></table></div></div>
 
   <div class="panel method">
-    <h2>Come sono calcolati</h2>
-    I token consumati sono quelli dichiarati dal provider in ogni risposta, come in <code>toonarrow stats</code>: <code>input</code> esclude i token letti dalla cache.
-    I token risparmiati sono una stima: per ogni richiesta riscritta, i caratteri tolti da toonarrow (descrizioni delle skill, output dei comandi shell)
-    sono convertiti con la densità della richiesta stessa, cioè token di prompt fatturati diviso byte effettivamente inviati.
-    Sono token che altrimenti sarebbero stati inviati in quella richiesta, in cache o no.
+    <h2 data-i18n="howTitle"></h2>
+    <div data-i18n-html="how"></div>
   </div>
 </div>
 
 <script>
+const I18N = {
+  it: {
+    period: 'Periodo', language: 'Lingua', today: 'oggi', d7: '7 giorni', d30: '30 giorni', d90: '90 giorni',
+    saved: 'Token risparmiati (stima)', promptSent: 'Token di prompt inviati', hitNote: 'cache read / token di prompt', requests: 'Richieste',
+    savedPerDay: 'Token risparmiati per giorno', usedPerDay: 'Token consumati per giorno', recentSessions: 'Sessioni recenti', byModel: 'Per modello', byClient: 'Per client',
+    howTitle: 'Come sono calcolati',
+    how: 'I token consumati sono quelli dichiarati dal provider in ogni risposta, come in <code>toonarrow stats</code>: <code>input</code> esclude i token letti dalla cache. '
+      + 'I token risparmiati sono una stima: per ogni richiesta riscritta, i caratteri tolti da toonarrow (descrizioni delle skill, output dei comandi shell) '
+      + 'sono convertiti con la densità della richiesta stessa, cioè token di prompt fatturati diviso byte effettivamente inviati. '
+      + 'Sono token che altrimenti sarebbero stati inviati in quella richiesta, in cache o no.',
+    skills: 'Elenco skill', shell: 'Output shell',
+    session: 'Sessione', client: 'Client', models: 'Modelli', lastActivity: 'Ultima attività', model: 'Modello', saveCol: 'Risparmiati', noModel: '(senza modello)', empty: 'Nessuna richiesta nel periodo',
+    updated: (t) => 'aggiornato alle ' + t, todaySub: 'Oggi', lastDays: (n) => 'Ultimi ' + n + ' giorni locali',
+    savedNote: (pct, sk, sh) => pct + ' del prompt senza toonarrow · skill ' + sk + ' · shell ' + sh, noRewrites: 'nessuna riscrittura nel periodo',
+    inOut: (i, o) => 'input ' + i + ' · output ' + o,
+    reqNote: (s, c, e, eN, other) => s + ' sessioni · ' + c + ' client · ' + e + (eN === 1 ? ' errore' : ' errori') + (other ? ' · ' + other + ' non di inferenza escluse' : ''),
+  },
+  en: {
+    period: 'Period', language: 'Language', today: 'today', d7: '7 days', d30: '30 days', d90: '90 days',
+    saved: 'Tokens saved (estimate)', promptSent: 'Prompt tokens sent', hitNote: 'cache read / prompt tokens', requests: 'Requests',
+    savedPerDay: 'Tokens saved per day', usedPerDay: 'Tokens used per day', recentSessions: 'Recent sessions', byModel: 'By model', byClient: 'By client',
+    howTitle: 'How these are computed',
+    how: 'Tokens used are the ones the provider reports in each response, as in <code>toonarrow stats</code>: <code>input</code> excludes tokens read from the cache. '
+      + 'Tokens saved are an estimate: for each rewritten request, the characters toonarrow removed (skill descriptions, shell command output) '
+      + 'are converted with that request\\'s own density, that is billed prompt tokens divided by bytes actually sent. '
+      + 'They are tokens that would otherwise have been sent in that request, cached or not.',
+    skills: 'Skill listing', shell: 'Shell output',
+    session: 'Session', client: 'Client', models: 'Models', lastActivity: 'Last activity', model: 'Model', saveCol: 'Saved', noModel: '(no model)', empty: 'No requests in this period',
+    updated: (t) => 'updated at ' + t, todaySub: 'Today', lastDays: (n) => 'Last ' + n + ' local days',
+    savedNote: (pct, sk, sh) => pct + ' of the prompt without toonarrow · skills ' + sk + ' · shell ' + sh, noRewrites: 'no rewrites in this period',
+    inOut: (i, o) => 'input ' + i + ' · output ' + o,
+    reqNote: (s, c, e, eN, other) => s + (s === '1' ? ' session · ' : ' sessions · ') + c + (c === '1' ? ' client · ' : ' clients · ') + e + (eN === 1 ? ' error' : ' errors') + (other ? ' · ' + other + ' non-inference excluded' : ''),
+  },
+};
 const SAVED = [
-  { key: 'savedSkills', label: 'Elenco skill', color: 'var(--saved-skills)' },
-  { key: 'savedBash', label: 'Output shell', color: 'var(--saved-bash)' },
+  { key: 'savedSkills', label: 'skills', color: 'var(--saved-skills)' },
+  { key: 'savedBash', label: 'shell', color: 'var(--saved-bash)' },
 ];
 const USAGE = [
-  { key: 'cacheRead', label: 'Cache read', color: 'var(--u-read)' },
-  { key: 'cacheWrite', label: 'Cache write', color: 'var(--u-write)' },
-  { key: 'input', label: 'Input', color: 'var(--u-input)' },
-  { key: 'output', label: 'Output', color: 'var(--u-output)' },
+  { key: 'cacheRead', name: 'Cache read', color: 'var(--u-read)' },
+  { key: 'cacheWrite', name: 'Cache write', color: 'var(--u-write)' },
+  { key: 'input', name: 'Input', color: 'var(--u-input)' },
+  { key: 'output', name: 'Output', color: 'var(--u-output)' },
 ];
-const nf = new Intl.NumberFormat('it-IT');
-const cf = new Intl.NumberFormat('it-IT', { notation: 'compact', maximumFractionDigits: 1 });
+const SVG = 'http://www.w3.org/2000/svg';
+
+function stored(key) { try { return localStorage.getItem(key); } catch { return null; } }
+function store(key, value) { try { localStorage.setItem(key, value); } catch {} }
+
+let lang = stored('toonarrow-lang');
+if (!I18N[lang]) lang = (navigator.languages || [navigator.language]).some((l) => String(l).toLowerCase().startsWith('it')) ? 'it' : 'en';
+let msg, locale, nf, cf, pf;
+function setLang(next) {
+  lang = next;
+  msg = I18N[lang];
+  locale = lang === 'it' ? 'it-IT' : 'en-US';
+  nf = new Intl.NumberFormat(locale);
+  cf = new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 });
+  pf = new Intl.NumberFormat(locale, { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  document.documentElement.lang = lang;
+  document.querySelectorAll('[data-i18n]').forEach((n) => { n.textContent = msg[n.dataset.i18n]; });
+  document.querySelectorAll('[data-i18n-html]').forEach((n) => { n.innerHTML = msg[n.dataset.i18nHtml]; });
+  document.querySelectorAll('[data-i18n-label]').forEach((n) => n.setAttribute('aria-label', msg[n.dataset.i18nLabel]));
+  document.querySelectorAll('[data-lang]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.lang === lang)));
+}
+const seriesLabel = (s) => s.name || msg[s.label];
+
 const saved = (t) => t.savedSkills + t.savedBash;
 const prompt = (t) => t.input + t.cacheRead + t.cacheWrite;
-const pf = new Intl.NumberFormat('it-IT', { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const hit = (t) => (prompt(t) ? pf.format(t.cacheRead / prompt(t)) : '-');
-const dayLabel = (d) => new Date(d + 'T12:00:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
-const when = (ts) => new Date(ts).toLocaleString('it-IT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-const SVG = 'http://www.w3.org/2000/svg';
+const dayLabel = (d) => new Date(d + 'T12:00:00').toLocaleDateString(locale, { day: 'numeric', month: 'short' });
+const when = (ts) => new Date(ts).toLocaleString(locale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
 function el(tag, attrs, text) {
   const node = tag.startsWith('svg:') ? document.createElementNS(SVG, tag.slice(4)) : document.createElement(tag);
@@ -172,7 +225,7 @@ function stacked(svg, daily, series) {
   daily.forEach((d, i) => {
     const x = L + slot * i + (slot - bw) / 2;
     let y = H - B;
-    const tip = [dayLabel(d.day), ...series.map((s) => s.label + ': ' + nf.format(d[s.key]))].join('\\n');
+    const tip = [dayLabel(d.day), ...series.map((s) => seriesLabel(s) + ': ' + nf.format(d[s.key]))].join('\\n');
     for (const s of series) {
       const h = ((H - T - B) * d[s.key]) / max;
       if (h <= 0) continue;
@@ -186,12 +239,12 @@ function stacked(svg, daily, series) {
 }
 
 function legend(node, series) {
-  node.replaceChildren(...series.map((s) => { const span = el('span'); const i = el('i'); i.style.background = s.color; span.append(i, s.label); return span; }));
+  node.replaceChildren(...series.map((s) => { const span = el('span'); const i = el('i'); i.style.background = s.color; span.append(i, seriesLabel(s)); return span; }));
 }
 
 function table(node, head, rows) {
   node.replaceChildren();
-  if (!rows.length) { node.append(el('caption', { class: 'empty' }, 'Nessuna richiesta nel periodo')); return; }
+  if (!rows.length) { node.append(el('caption', { class: 'empty' }, msg.empty)); return; }
   const thead = el('tr');
   for (const [label, cls] of head) thead.append(el('th', cls ? { class: cls } : {}, label));
   node.appendChild(el('thead')).append(thead);
@@ -204,41 +257,53 @@ function table(node, head, rows) {
 
 // Prompt = input + cache read + cache write; the split is in the usage chart and in toonarrow stats.
 const totalsCells = (t) => [nf.format(t.requests), nf.format(prompt(t)), hit(t), nf.format(t.output), nf.format(saved(t))];
-const totalsHead = [['Richieste'], ['Prompt'], ['Cache hit'], ['Output'], ['Risparmiati', 'saved']];
+const totalsHead = () => [[msg.requests], ['Prompt'], ['Cache hit'], ['Output'], [msg.saveCol, 'saved']];
 
-let days = 30;
-try { days = Number(localStorage.getItem('toonarrow-days')) || 30; } catch {}
+let days = Number(stored('toonarrow-days')) || 30;
+let last;
 
-async function load() {
-  document.querySelectorAll('.range button').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.days) === days)));
-  const res = await fetch('api/summary?days=' + days);
-  const s = await res.json();
+function render(s) {
+  document.querySelectorAll('[data-days]').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.days) === days)));
+  if (!s) return;
   const t = s.totals;
   const sentPrompt = prompt(t);
-  document.getElementById('sub').textContent = days === 1 ? 'Oggi' : 'Ultimi ' + days + ' giorni locali';
-  document.getElementById('updated').textContent = 'aggiornato alle ' + new Date(s.generatedAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  document.getElementById('sub').textContent = days === 1 ? msg.todaySub : msg.lastDays(days);
+  document.getElementById('updated').textContent = msg.updated(new Date(s.generatedAt).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }));
   document.getElementById('c-saved').textContent = cf.format(saved(t));
-  document.getElementById('c-saved-note').textContent = sentPrompt ? pf.format(saved(t) / (sentPrompt + saved(t))) + ' del prompt senza toonarrow · skill ' + cf.format(t.savedSkills) + ' · shell ' + cf.format(t.savedBash) : 'nessuna riscrittura nel periodo';
+  document.getElementById('c-saved-note').textContent = sentPrompt ? msg.savedNote(pf.format(saved(t) / (sentPrompt + saved(t))), cf.format(t.savedSkills), cf.format(t.savedBash)) : msg.noRewrites;
   document.getElementById('c-prompt').textContent = cf.format(sentPrompt);
-  document.getElementById('c-prompt-note').textContent = 'input ' + cf.format(t.input) + ' · output ' + cf.format(t.output);
+  document.getElementById('c-prompt-note').textContent = msg.inOut(cf.format(t.input), cf.format(t.output));
   document.getElementById('c-hit').textContent = hit(t);
   document.getElementById('c-req').textContent = nf.format(t.requests);
-  document.getElementById('c-req-note').textContent = s.sessions.length + ' sessioni · ' + s.clients.length + ' client · ' + nf.format(t.errors) + (t.errors === 1 ? ' errore' : ' errori') + (s.otherRequests ? ' · ' + nf.format(s.otherRequests) + ' non di inferenza escluse' : '');
+  document.getElementById('c-req-note').textContent = msg.reqNote(nf.format(s.sessions.length), nf.format(s.clients.length), nf.format(t.errors), t.errors, s.otherRequests ? nf.format(s.otherRequests) : '');
   stacked(document.getElementById('chart-saved'), s.daily, SAVED);
   stacked(document.getElementById('chart-usage'), s.daily, USAGE);
   legend(document.getElementById('legend-saved'), SAVED);
   legend(document.getElementById('legend-usage'), USAGE);
-  table(document.getElementById('t-sessions'), [['Sessione', 'left'], ['Client', 'left'], ['Modelli', 'left multi'], ['Ultima attività', 'left'], ...totalsHead],
+  table(document.getElementById('t-sessions'), [[msg.session, 'left'], [msg.client, 'left'], [msg.models, 'left multi'], [msg.lastActivity, 'left'], ...totalsHead()],
     s.sessions.slice(0, 20).map((r) => [r.session.length > 16 ? r.session.slice(0, 14) + '…' : r.session, r.client, r.models.join(', '), when(r.last), ...totalsCells(r)]));
-  table(document.getElementById('t-models'), [['Modello', 'left'], ...totalsHead], s.models.map((r) => [r.model === '?' ? '(senza modello)' : r.model, ...totalsCells(r)]));
-  table(document.getElementById('t-clients'), [['Client', 'left'], ...totalsHead], s.clients.map((r) => [r.client, ...totalsCells(r)]));
+  table(document.getElementById('t-models'), [[msg.model, 'left'], ...totalsHead()], s.models.map((r) => [r.model === '?' ? msg.noModel : r.model, ...totalsCells(r)]));
+  table(document.getElementById('t-clients'), [[msg.client, 'left'], ...totalsHead()], s.clients.map((r) => [r.client, ...totalsCells(r)]));
 }
 
-document.querySelectorAll('.range button').forEach((b) => b.addEventListener('click', () => {
+async function load() {
+  render(last);
+  const res = await fetch('api/summary?days=' + days);
+  last = await res.json();
+  render(last);
+}
+
+document.querySelectorAll('[data-days]').forEach((b) => b.addEventListener('click', () => {
   days = Number(b.dataset.days);
-  try { localStorage.setItem('toonarrow-days', String(days)); } catch {}
+  store('toonarrow-days', String(days));
   load();
 }));
+document.querySelectorAll('[data-lang]').forEach((b) => b.addEventListener('click', () => {
+  store('toonarrow-lang', b.dataset.lang);
+  setLang(b.dataset.lang);
+  render(last);
+}));
+setLang(lang);
 load();
 setInterval(load, 30000);
 </script>
