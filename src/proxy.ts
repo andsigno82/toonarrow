@@ -9,6 +9,7 @@ import { bodyShape, parseRequestJson, redactHeaders, requestMeta } from './meta.
 import { rewriteAnthropic, rewriteChat, rewriteResponses } from './compress/request.ts';
 import type { RewriteStats } from './compress/request.ts';
 import { rewriteSkills } from './compress/skills.ts';
+import type { SessionMemoStore } from './session-memo.ts';
 import type { SkillStats } from './compress/skills.ts';
 import { DASHBOARD_HTML } from './dashboard.ts';
 import { summarize } from './report.ts';
@@ -23,6 +24,8 @@ export interface ProxyOptions {
   ledger: Ledger;
   /** Directory for capture files; required when config.capture !== 'off'. */
   captureDir?: string;
+  /** Per-session memo of compression decisions; without it every request follows the current rules. */
+  memo?: SessionMemoStore;
   log?: (msg: string) => void;
 }
 
@@ -137,13 +140,16 @@ export function createProxyServer(opts: ProxyOptions): http.Server {
     const headers = forwardHeaders(req.headers);
 
     const fullCapture = opts.config.capture === 'full' && json ? structuredClone(json) : undefined;
+    // Blocks already sent in this session keep the bytes they had then, whatever the rules and config are now.
+    const memo = json && meta.sessionKey ? opts.memo?.for(meta.sessionKey) : undefined;
     let compression: RewriteStats | undefined;
     if (json && opts.config.compress.bash) {
-      if (wire === 'anthropic-messages') compression = rewriteAnthropic(json);
-      else if (wire === 'openai-responses') compression = rewriteResponses(json);
-      else if (wire === 'openai-chat') compression = rewriteChat(json);
+      if (wire === 'anthropic-messages') compression = rewriteAnthropic(json, memo);
+      else if (wire === 'openai-responses') compression = rewriteResponses(json, memo);
+      else if (wire === 'openai-chat') compression = rewriteChat(json, memo);
     }
-    const skills: SkillStats | undefined = json && opts.config.compress.skills ? rewriteSkills(json, wire, keepSkills) : undefined;
+    const skills: SkillStats | undefined =
+      json && opts.config.compress.skills ? rewriteSkills(json, wire, memo ? memo.keepSkills(keepSkills) : keepSkills) : undefined;
     // Only re-serialize when something changed; the body is then sent uncompressed.
     const body = compression?.bashBlocks || skills?.skillsHidden ? Buffer.from(JSON.stringify(json)) : original;
     if (body !== original) delete headers['content-encoding'];

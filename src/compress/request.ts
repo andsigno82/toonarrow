@@ -1,4 +1,5 @@
 import { editTopLevelStrings, topLevelStringSpans } from './json.ts';
+import { type Memo, memoKey, remember } from './memo.ts';
 import { compressBashOutput } from './shell/index.ts';
 
 type Json = Record<string, any>;
@@ -11,6 +12,12 @@ export interface RewriteStats {
 
 const emptyStats = (): RewriteStats => ({ bashBlocks: 0, bashCharsSaved: 0 });
 
+/** Per-request state: savings counters and the session's memo of earlier decisions. */
+interface Ctx {
+  stats: RewriteStats;
+  memo?: Memo;
+}
+
 /** Shell tool names: Claude Code `Bash`; OpenCode 2.x `shell`; older OpenCode and others `bash`; Kora CLI `executeCommand`. */
 const SHELL_TOOLS = new Set(['Bash', 'bash', 'shell', 'executeCommand']);
 
@@ -20,12 +27,12 @@ function shellCommand(name: unknown, input: unknown): string | undefined {
   return typeof command === 'string' ? command : undefined;
 }
 
-function compressInto(stats: RewriteStats, command: string, text: string): string {
-  const r = compressBashOutput(command, text);
-  if (!r.applied) return text;
-  stats.bashBlocks++;
-  stats.bashCharsSaved += text.length - r.text.length;
-  return r.text;
+function compressInto(ctx: Ctx, command: string, text: string): string {
+  const result = remember(ctx.memo, memoKey('shell', command, text), text, () => compressBashOutput(command, text).text);
+  if (result === text) return text;
+  ctx.stats.bashBlocks++;
+  ctx.stats.bashCharsSaved += text.length - result.length;
+  return result;
 }
 
 /** One Codex code-mode statement whose output goes straight to the model: `text(await tools.exec_command({cmd:"...", ...}));` */
@@ -81,17 +88,17 @@ const OUTPUT_FIELDS = ['output', 'stdout', 'stderr'];
  * Compresses the command output inside one tool result text: JSON with output fields (Codex, Kora CLI)
  * or plain text. In JSON only the output fields' bytes change; escapes and layout elsewhere stay as sent.
  */
-function compressToolText(stats: RewriteStats, command: string, text: string): string {
+function compressToolText(ctx: Ctx, command: string, text: string): string {
   const spans = text.trimStart().startsWith('{') ? topLevelStringSpans(text) : undefined;
-  if (!spans || !OUTPUT_FIELDS.some((k) => spans.has(k))) return compressInto(stats, command, text);
-  return editTopLevelStrings(text, OUTPUT_FIELDS, (_key, value) => compressInto(stats, command, value));
+  if (!spans || !OUTPUT_FIELDS.some((k) => spans.has(k))) return compressInto(ctx, command, text);
+  return editTopLevelStrings(text, OUTPUT_FIELDS, (_key, value) => compressInto(ctx, command, value));
 }
 
 /** Responses API output text: also Codex's "...Output:\n<text>" form. */
-function compressResponsesText(stats: RewriteStats, command: string, text: string): string {
+function compressResponsesText(ctx: Ctx, command: string, text: string): string {
   const marker = text.trimStart().startsWith('{') ? -1 : text.indexOf('Output:\n');
-  if (marker >= 0) return text.slice(0, marker + 8) + compressInto(stats, command, text.slice(marker + 8));
-  return compressToolText(stats, command, text);
+  if (marker >= 0) return text.slice(0, marker + 8) + compressInto(ctx, command, text.slice(marker + 8));
+  return compressToolText(ctx, command, text);
 }
 
 /**
@@ -99,8 +106,9 @@ function compressResponsesText(stats: RewriteStats, command: string, text: strin
  * `custom_tool_call` exec scripts or `function_call` exec_command/shell, answered by the
  * matching *_output item with the same call_id.
  */
-export function rewriteResponses(body: Json): RewriteStats {
+export function rewriteResponses(body: Json, memo?: Memo): RewriteStats {
   const stats = emptyStats();
+  const ctx: Ctx = { stats, memo };
   if (!Array.isArray(body.input)) return stats;
   const commands = new Map<string, string[]>();
   for (const item of body.input) {
@@ -113,15 +121,15 @@ export function rewriteResponses(body: Json): RewriteStats {
     if ((item.type !== 'custom_tool_call_output' && item.type !== 'function_call_output') || !commands.has(item.call_id)) continue;
     const cmds = commands.get(item.call_id)!;
     if (typeof item.output === 'string') {
-      if (cmds.length === 1) item.output = compressResponsesText(stats, cmds[0]!, item.output);
+      if (cmds.length === 1) item.output = compressResponsesText(ctx, cmds[0]!, item.output);
     } else if (Array.isArray(item.output)) {
       const texts = item.output.filter((p: Json) => p?.type === 'input_text' && typeof p.text === 'string');
       if (cmds.length === 1) {
-        for (const part of texts) part.text = compressResponsesText(stats, cmds[0]!, part.text);
+        for (const part of texts) part.text = compressResponsesText(ctx, cmds[0]!, part.text);
       } else {
         // Several calls: a header part, then one JSON result per text() call, in script order.
         const results = texts.filter((p: Json) => p.text.trimStart().startsWith('{'));
-        if (results.length === cmds.length) results.forEach((p: Json, i: number) => (p.text = compressToolText(stats, cmds[i]!, p.text)));
+        if (results.length === cmds.length) results.forEach((p: Json, i: number) => (p.text = compressToolText(ctx, cmds[i]!, p.text)));
       }
     }
   }
@@ -132,8 +140,9 @@ export function rewriteResponses(body: Json): RewriteStats {
  * OpenAI Chat Completions (OpenCode via Z.AI, OpenCode Go, Kora CLI, other OpenAI-compatible providers):
  * assistant `tool_calls` to the shell tool, answered by `role: tool` messages with the same id.
  */
-export function rewriteChat(body: Json): RewriteStats {
+export function rewriteChat(body: Json, memo?: Memo): RewriteStats {
   const stats = emptyStats();
+  const ctx: Ctx = { stats, memo };
   if (!Array.isArray(body.messages)) return stats;
   const commands = new Map<string, string>();
   for (const msg of body.messages) {
@@ -145,9 +154,9 @@ export function rewriteChat(body: Json): RewriteStats {
       }
     } else if (msg?.role === 'tool' && commands.has(msg.tool_call_id)) {
       const command = commands.get(msg.tool_call_id)!;
-      if (typeof msg.content === 'string') msg.content = compressToolText(stats, command, msg.content);
+      if (typeof msg.content === 'string') msg.content = compressToolText(ctx, command, msg.content);
       else if (Array.isArray(msg.content) && msg.content.length === 1 && msg.content[0]?.type === 'text') {
-        msg.content[0].text = compressToolText(stats, command, msg.content[0].text);
+        msg.content[0].text = compressToolText(ctx, command, msg.content[0].text);
       }
     }
   }
@@ -159,8 +168,9 @@ export function rewriteChat(body: Json): RewriteStats {
  * answered by a user tool_result whose content is a string or a single text block. Mutates `body`; the transform is a pure function of each
  * block, so every request in a session yields the same bytes and the cache prefix holds.
  */
-export function rewriteAnthropic(body: Json): RewriteStats {
+export function rewriteAnthropic(body: Json, memo?: Memo): RewriteStats {
   const stats = emptyStats();
+  const ctx: Ctx = { stats, memo };
   if (!Array.isArray(body.messages)) return stats;
   const commands = new Map<string, string>();
   for (const msg of body.messages) {
@@ -171,9 +181,9 @@ export function rewriteAnthropic(body: Json): RewriteStats {
         commands.set(block.id, command);
       } else if (msg.role === 'user' && block?.type === 'tool_result' && commands.has(block.tool_use_id)) {
         const command = commands.get(block.tool_use_id)!;
-        if (typeof block.content === 'string') block.content = compressInto(stats, command, block.content);
+        if (typeof block.content === 'string') block.content = compressInto(ctx, command, block.content);
         else if (Array.isArray(block.content) && block.content.length === 1 && block.content[0]?.type === 'text') {
-          block.content[0].text = compressInto(stats, command, block.content[0].text);
+          block.content[0].text = compressInto(ctx, command, block.content[0].text);
         }
       }
     }

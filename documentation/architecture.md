@@ -23,7 +23,9 @@ client (Claude Code / Codex / OpenCode / Kora)
 
 1. **Deterministic and idempotent.** Every rewrite is a pure function of the block it touches. The same history
    yields the same bytes on every request, and a second pass changes nothing, so the provider's cached prefix
-   survives. Each transformation has a second-pass test.
+   survives. Each transformation has a second-pass test. Within a session the first decision for each block (and
+   the skill keep-list of the first request) is recorded in `~/.toonarrow/sessions/` and replayed, so a rule
+   upgrade or a config change applies only to blocks the provider has not cached yet (`src/session-memo.ts`).
 2. **Fail-soft.** An unparsable body, an unknown format or a low gain is forwarded unchanged.
 3. **Escape hatch.** Every compressed shell output ends with `[toonarrow <rule>: N->M chars; ... | cat]`. A command
    ending in `| cat` is never compressed, so `cmd | cat` (or `( … ) | cat` for a chain) always returns the raw output.
@@ -48,6 +50,7 @@ client (Claude Code / Codex / OpenCode / Kora)
 | `src/meta.ts` | session and client identity, body decoding (gzip/br/zstd), header redaction |
 | `src/compress/shell/` | per-command rules by family (`files`, `git`, `tests`, `build`) and the registry in `index.ts`: ls -l, git log/status, grep/rg, find/fd, pytest, vitest/jest, tsc, go test, cargo, npm/pip install, make |
 | `src/compress/request.ts` | shell call/result pairing for Anthropic Messages, Responses API and Chat Completions |
+| `src/compress/memo.ts`, `src/session-memo.ts` | per-session memo of compression decisions and its on-disk store |
 | `src/compress/json.ts` | byte-preserving JSON edits: in-place replacement of top-level string fields, whitespace-only minify |
 | `src/compress/skills.ts` | skill listings: full entry for skills in `compress.keepSkills`, names only for the rest |
 | `src/skill-usage.ts` | skill usage from local history (OpenCode database, Claude Code transcripts, Kora sessions), for `toonarrow skills` |
@@ -131,5 +134,6 @@ The short-answer rule can be left out with `--toonarrow-no-brief`.
 
 ## Local data
 
-`~/.toonarrow/`: `config.json`, `usage/` (ledger), `capture/` (only with `capture` on), `logs/`, `bin/` (shims),
-`runtime.json`. Nothing leaves the machine except the proxied requests themselves: no account, no telemetry.
+`~/.toonarrow/`: `config.json`, `usage/` (ledger), `sessions/` (per-session memo of compression decisions: one
+private JSONL file per session, deleted after 14 days without use, capped at 32 MB each), `capture/` (only with
+`capture` on), `logs/`, `bin/` (shims), `runtime.json`. Nothing leaves the machine except the proxied requests themselves: no account, no telemetry.

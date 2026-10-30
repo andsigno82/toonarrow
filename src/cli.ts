@@ -2,7 +2,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CAPTURE_DIR, CONFIG_PATH, LEDGER_DIR, LOG_DIR, RUNTIME_PATH, initConfig, loadConfig, setCompressConfig } from './config.ts';
+import { CAPTURE_DIR, CONFIG_PATH, LEDGER_DIR, LOG_DIR, RUNTIME_PATH, SESSIONS_DIR, initConfig, loadConfig, setCompressConfig } from './config.ts';
 import type { Config } from './config.ts';
 import { Ledger, dayStamp } from './ledger.ts';
 import { clientLabel, grouped, isInference } from './report.ts';
@@ -10,6 +10,7 @@ import type { LedgerEntry } from './ledger.ts';
 import { SHIM_CLIENTS, SHIM_DIR, launchClaude, launchCodex, launchKora, launchOpencode, launchShim, preToolUseHook } from './launch.ts';
 import { currentPlatform } from './platform/index.ts';
 import { VERSION, createProxyServer } from './proxy.ts';
+import { SessionMemoStore } from './session-memo.ts';
 
 const CLI_PATH = fileURLToPath(import.meta.url);
 
@@ -21,6 +22,7 @@ function serve(): void {
     config,
     ledger: new Ledger(LEDGER_DIR),
     captureDir: CAPTURE_DIR,
+    memo: new SessionMemoStore(SESSIONS_DIR),
     log: (m) => console.error(`[toonarrow] ${m}`),
   });
   server.listen(config.port, config.host, () => {

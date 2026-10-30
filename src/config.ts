@@ -30,6 +30,7 @@ export const HOME_DIR = process.env.TOONARROW_HOME ?? join(homedir(), '.toonarro
 export const CONFIG_PATH = join(HOME_DIR, 'config.json');
 export const LEDGER_DIR = join(HOME_DIR, 'usage');
 export const CAPTURE_DIR = join(HOME_DIR, 'capture');
+export const SESSIONS_DIR = join(HOME_DIR, 'sessions');
 export const LOG_DIR = join(HOME_DIR, 'logs');
 export const RUNTIME_PATH = join(HOME_DIR, 'runtime.json');
 
