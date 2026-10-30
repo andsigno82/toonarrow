@@ -10,8 +10,11 @@ permissions:
 
 jobs:
   test:
-    # toonarrow targets macOS (launchd service, zsh shims), so the tests run there too.
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,5 +23,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
+      - name: Test
+        if: runner.os != 'Windows'
+        run: npm test
+      # Install, shims and launchers are not supported on Windows yet (0.4.0): run the portable suites only.
+      - name: Test (portable suites)
+        if: runner.os == 'Windows'
+        run: node --test test/shell.test.ts test/shell-properties.test.ts test/json.test.ts test/request.test.ts test/skills.test.ts test/sse.test.ts test/usage.test.ts test/meta.test.ts test/report.test.ts test/proxy.test.ts test/platform.test.ts
       - run: npm run build
+        shell: bash
