@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compressBashOutput, dedupeRuns, isCompound, normalize, parseCommand } from '../src/compress/bash.ts';
+import { compressBashOutput, dedupeRuns, isCompound, normalize, parseCommand } from '../src/compress/shell/index.ts';
 
 const rep = (n: number, f: (i: number) => string): string => Array.from({ length: n }, (_, i) => f(i)).join('\n');
 const body = (text: string): string => text.slice(0, text.lastIndexOf('\n[toonarrow '));

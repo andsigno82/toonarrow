@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compressBashOutput } from '../src/compress/bash.ts';
+import { compressBashOutput } from '../src/compress/shell/index.ts';
 import { rewriteAnthropic, rewriteChat, rewriteResponses } from '../src/compress/request.ts';
 
 export const LS_OUTPUT = ['total 2048', ...Array.from({ length: 30 }, (_, i) => `-rw-r--r--@  1 andrea  staff  ${1000 + i} 24 set 09:10 file-${i}.ts`)].join('\n');

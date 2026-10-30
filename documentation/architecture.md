@@ -38,7 +38,7 @@ client (Claude Code / Codex / OpenCode / Kora)
 | `src/proxy.ts` | server, routing (`/<upstream>/`, `/_via/`), rewrites, usage tee, early client close, dashboard routes |
 | `src/wire.ts`, `src/sse.ts`, `src/usage.ts` | wire detection, incremental SSE parser, provider-neutral usage, stream error events |
 | `src/meta.ts` | session and client identity, body decoding (gzip/br/zstd), header redaction |
-| `src/compress/bash.ts` | per-command rules: ls -l, git log/status, grep/rg, find/fd, pytest, vitest/jest, tsc, go test, cargo, npm/pip install, make |
+| `src/compress/shell/` | per-command rules by family (`files`, `git`, `tests`, `build`) and the registry in `index.ts`: ls -l, git log/status, grep/rg, find/fd, pytest, vitest/jest, tsc, go test, cargo, npm/pip install, make |
 | `src/compress/request.ts` | shell call/result pairing for Anthropic Messages, Responses API and Chat Completions |
 | `src/compress/skills.ts` | skill listings: full entry for skills in `compress.keepSkills`, names only for the rest |
 | `src/skill-usage.ts` | skill usage from local history (OpenCode database, Claude Code transcripts, Kora sessions), for `toonarrow skills` |

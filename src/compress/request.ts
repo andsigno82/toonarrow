@@ -1,4 +1,4 @@
-import { compressBashOutput } from './bash.ts';
+import { compressBashOutput } from './shell/index.ts';
 
 type Json = Record<string, any>;
 
