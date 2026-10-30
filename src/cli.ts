@@ -121,6 +121,26 @@ const launchctl = (...args: string[]): void => {
 };
 const domain = (): string => `gui/${process.getuid?.()}`;
 
+const sleepSync = (ms: number): void => {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+};
+
+const daemonLoaded = (): boolean => {
+  try {
+    execFileSync('launchctl', ['print', `${domain()}/${LAUNCHD_LABEL}`], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** bootout returns before launchd has unloaded the job; a bootstrap in that window fails with "Input/output error". */
+function unloadDaemon(): void {
+  if (!daemonLoaded()) return;
+  launchctl('bootout', `${domain()}/${LAUNCHD_LABEL}`);
+  for (let i = 0; i < 100 && daemonLoaded(); i++) sleepSync(100);
+}
+
 function install(): void {
   if (initConfig()) console.log(`config: created ${CONFIG_PATH}`);
   mkdirSync(LOG_DIR, { recursive: true });
@@ -129,13 +149,7 @@ function install(): void {
   chmodSync(WRAPPER_PATH, 0o755);
   console.log(`wrapper: ${WRAPPER_PATH}`);
   mkdirSync(dirname(PLIST_PATH), { recursive: true });
-  if (existsSync(PLIST_PATH)) {
-    try {
-      launchctl('bootout', `${domain()}/${LAUNCHD_LABEL}`);
-    } catch {
-      // not loaded
-    }
-  }
+  unloadDaemon();
   writeFileSync(PLIST_PATH, plist());
   launchctl('bootstrap', domain(), PLIST_PATH);
   console.log(`daemon: ${LAUNCHD_LABEL} loaded (${PLIST_PATH})`);
@@ -150,11 +164,7 @@ function install(): void {
 }
 
 function uninstall(): void {
-  try {
-    launchctl('bootout', `${domain()}/${LAUNCHD_LABEL}`);
-  } catch {
-    // not loaded
-  }
+  unloadDaemon();
   rmSync(PLIST_PATH, { force: true });
   rmSync(WRAPPER_PATH, { force: true });
   for (const client of SHIM_CLIENTS) rmSync(join(SHIM_DIR, client), { force: true });
