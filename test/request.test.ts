@@ -101,6 +101,48 @@ test('codex: rewriting is deterministic and idempotent', () => {
   assert.equal(JSON.stringify(again), JSON.stringify(a));
 });
 
+// Shape observed from Codex 0.160.1 (gpt-6.1-sol): several text(await tools.exec_command(...)) statements in one
+// script, answered by a header part and one JSON result per call, in order.
+const multiCall = (results: string[]) => ({
+  input: [
+    {
+      type: 'custom_tool_call',
+      call_id: 'm1',
+      name: 'exec',
+      input: 'text(await tools.exec_command({cmd:"ls -la src","max_output_tokens":4000}));\ntext(await tools.exec_command({cmd:"ls -la test","max_output_tokens":1000}));\n',
+    },
+    {
+      type: 'custom_tool_call_output',
+      call_id: 'm1',
+      output: [{ type: 'input_text', text: 'Script completed\nWall time 0.3 seconds\nOutput:\n' }, ...results.map((text) => ({ type: 'input_text', text }))],
+    },
+  ],
+});
+const execResult = (output: string) => JSON.stringify({ chunk_id: 'c', wall_time_seconds: 0.000002, exit_code: 0, output });
+
+test('codex: a script of several plain exec_command calls gets each result compressed with its own command', () => {
+  const body = multiCall([execResult(LS_OUTPUT), execResult(LS_OUTPUT)]);
+  assert.equal(rewriteResponses(body).bashBlocks, 2);
+  const parts = (body.input[1] as any).output;
+  assert.equal(parts[0].text, 'Script completed\nWall time 0.3 seconds\nOutput:\n', 'header untouched');
+  for (const p of parts.slice(1)) assert.ok(JSON.parse(p.text).output.includes('[toonarrow ls-long:'));
+  const again = structuredClone(body);
+  assert.equal(rewriteResponses(again).bashBlocks, 0, 'idempotent');
+  assert.equal(JSON.stringify(again), JSON.stringify(body));
+});
+
+test('codex: results that do not line up one per call, or scripts with other statements, pass through', () => {
+  const short = multiCall([execResult(LS_OUTPUT)]);
+  assert.equal(rewriteResponses(short).bashBlocks, 0);
+  const derived = {
+    input: [
+      { type: 'custom_tool_call', call_id: 'd1', name: 'exec', input: 'const r = await tools.exec_command({cmd:"ls -la"}); text(r.output);\ntext({n: 1});' },
+      { type: 'custom_tool_call_output', call_id: 'd1', output: [{ type: 'input_text', text: LS_OUTPUT }] },
+    ],
+  };
+  assert.equal(rewriteResponses(derived).bashBlocks, 0);
+});
+
 test('kora cli: executeCommand JSON results get stdout compressed, other fields kept', () => {
   const result = JSON.stringify({ exit_code: 0, stderr: '', stdout: LS_OUTPUT, success: true });
   const body = {

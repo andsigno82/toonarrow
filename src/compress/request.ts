@@ -27,8 +27,8 @@ function compressInto(stats: RewriteStats, command: string, text: string): strin
   return r.text;
 }
 
-/** Codex code-mode script with exactly one exec_command call: `text(await tools.exec_command({cmd:"...", ...}));` */
-const CODE_MODE_EXEC = /^\s*text\(await tools\.exec_command\(\{\s*cmd:\s*("(?:\\.|[^"\\])*")[^{}]*\}\)\);?\s*$/;
+/** One Codex code-mode statement whose output goes straight to the model: `text(await tools.exec_command({cmd:"...", ...}));` */
+const CODE_MODE_CALL = /\s*text\(await tools\.exec_command\(\{\s*cmd:\s*("(?:\\.|[^"\\])*")[^{}]*\}\)\);?\s*/y;
 
 function parseJson(text: string): any {
   try {
@@ -38,21 +38,36 @@ function parseJson(text: string): any {
   }
 }
 
-/** Shell command of a Responses API tool call, or undefined when it is not a single shell command. */
-export function codexCommand(item: Json): string | undefined {
-  if (item.type === 'custom_tool_call' && item.name === 'exec' && typeof item.input === 'string') {
-    const m = CODE_MODE_EXEC.exec(item.input);
-    const cmd = m ? parseJson(m[1]!) : undefined;
-    return typeof cmd === 'string' ? cmd : undefined;
+/**
+ * Commands of a code-mode script made only of `text(await tools.exec_command({cmd}))` statements, in order.
+ * Any other statement (variables, post-processing) makes the output differ from the raw command output: undefined.
+ */
+function codeModeCommands(script: string): string[] | undefined {
+  const call = new RegExp(CODE_MODE_CALL.source, 'y');
+  const commands: string[] = [];
+  while (call.lastIndex < script.length) {
+    const start = call.lastIndex;
+    const m = call.exec(script);
+    if (!m || call.lastIndex === start) return undefined;
+    const cmd = parseJson(m[1]!);
+    if (typeof cmd !== 'string') return undefined;
+    commands.push(cmd);
   }
+  return commands.length ? commands : undefined;
+}
+
+/** Shell commands of a Responses API tool call, in output order, or undefined when it is not plain shell. */
+export function codexCommands(item: Json): string[] | undefined {
+  if (item.type === 'custom_tool_call' && item.name === 'exec' && typeof item.input === 'string') return codeModeCommands(item.input);
   if (item.type === 'function_call' && ['exec_command', 'shell', 'local_shell', 'executeCommand'].includes(item.name) && typeof item.arguments === 'string') {
     const args = parseJson(item.arguments);
-    if (typeof args?.cmd === 'string') return args.cmd;
-    if (typeof args?.command === 'string') return args.command;
+    if (typeof args?.cmd === 'string') return [args.cmd];
+    if (typeof args?.command === 'string') return [args.command];
     if (Array.isArray(args?.command)) {
       const c = args.command as unknown[];
       // ["bash", "-lc", "<script>"] carries the real command last.
-      return c.length === 3 && c[1] === '-lc' && typeof c[2] === 'string' ? c[2] : c.every((x) => typeof x === 'string') ? c.join(' ') : undefined;
+      if (c.length === 3 && c[1] === '-lc' && typeof c[2] === 'string') return [c[2]];
+      if (c.every((x) => typeof x === 'string')) return [c.join(' ')];
     }
   }
   return undefined;
@@ -89,20 +104,26 @@ function compressResponsesText(stats: RewriteStats, command: string, text: strin
 export function rewriteResponses(body: Json): RewriteStats {
   const stats = emptyStats();
   if (!Array.isArray(body.input)) return stats;
-  const commands = new Map<string, string>();
+  const commands = new Map<string, string[]>();
   for (const item of body.input) {
     if (!item || typeof item !== 'object') continue;
-    const command = codexCommand(item);
-    if (command !== undefined && typeof item.call_id === 'string') {
-      commands.set(item.call_id, command);
+    const calls = codexCommands(item);
+    if (calls !== undefined && typeof item.call_id === 'string') {
+      commands.set(item.call_id, calls);
       continue;
     }
     if ((item.type !== 'custom_tool_call_output' && item.type !== 'function_call_output') || !commands.has(item.call_id)) continue;
-    const cmd = commands.get(item.call_id)!;
-    if (typeof item.output === 'string') item.output = compressResponsesText(stats, cmd, item.output);
-    else if (Array.isArray(item.output)) {
-      for (const part of item.output) {
-        if (part?.type === 'input_text' && typeof part.text === 'string') part.text = compressResponsesText(stats, cmd, part.text);
+    const cmds = commands.get(item.call_id)!;
+    if (typeof item.output === 'string') {
+      if (cmds.length === 1) item.output = compressResponsesText(stats, cmds[0]!, item.output);
+    } else if (Array.isArray(item.output)) {
+      const texts = item.output.filter((p: Json) => p?.type === 'input_text' && typeof p.text === 'string');
+      if (cmds.length === 1) {
+        for (const part of texts) part.text = compressResponsesText(stats, cmds[0]!, part.text);
+      } else {
+        // Several calls: a header part, then one JSON result per text() call, in script order.
+        const results = texts.filter((p: Json) => p.text.trimStart().startsWith('{'));
+        if (results.length === cmds.length) results.forEach((p: Json, i: number) => (p.text = compressToolText(stats, cmds[i]!, p.text)));
       }
     }
   }
