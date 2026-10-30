@@ -1,3 +1,4 @@
+import { editTopLevelStrings, topLevelStringSpans } from './json.ts';
 import { compressBashOutput } from './shell/index.ts';
 
 type Json = Record<string, any>;
@@ -78,15 +79,12 @@ const OUTPUT_FIELDS = ['output', 'stdout', 'stderr'];
 
 /**
  * Compresses the command output inside one tool result text: JSON with output fields (Codex, Kora CLI)
- * or plain text. JSON is re-serialized only when a field changed.
+ * or plain text. In JSON only the output fields' bytes change; escapes and layout elsewhere stay as sent.
  */
 function compressToolText(stats: RewriteStats, command: string, text: string): string {
-  const json = text.trimStart().startsWith('{') ? parseJson(text) : undefined;
-  const fields = json && typeof json === 'object' ? OUTPUT_FIELDS.filter((k) => typeof json[k] === 'string') : [];
-  if (!fields.length) return compressInto(stats, command, text);
-  const out = { ...json };
-  for (const k of fields) out[k] = compressInto(stats, command, json[k]);
-  return fields.some((k) => out[k] !== json[k]) ? JSON.stringify(out) : text;
+  const spans = text.trimStart().startsWith('{') ? topLevelStringSpans(text) : undefined;
+  if (!spans || !OUTPUT_FIELDS.some((k) => spans.has(k))) return compressInto(stats, command, text);
+  return editTopLevelStrings(text, OUTPUT_FIELDS, (_key, value) => compressInto(stats, command, value));
 }
 
 /** Responses API output text: also Codex's "...Output:\n<text>" form. */
