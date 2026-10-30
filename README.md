@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/logo-transparent-dark.svg">
+    <img src="assets/logo/logo-transparent-light.svg" alt="toonarrow" width="360">
+  </picture>
+</p>
+
 # toonarrow
 
 **The open-source, multi-CLI alternative to Fermat's Last Token.**
