@@ -17,7 +17,7 @@ import { createCollector } from './usage.ts';
 import type { CollectedUsage, UsageCollector } from './usage.ts';
 import { detectWire } from './wire.ts';
 
-export const VERSION = '0.1.0';
+export const VERSION = '0.1.1';
 
 export interface ProxyOptions {
   config: Config;
