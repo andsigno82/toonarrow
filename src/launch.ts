@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { closeSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, extname, join, resolve } from 'node:path';
+import { delimiter, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HOME_DIR, loadConfig } from './config.ts';
 import { BRIEF_GUIDANCE, fileToolGuidance } from './guidance.ts';
@@ -42,6 +42,8 @@ export const SHIM_DIR = join(HOME_DIR, 'bin');
 export const SHIM_CLIENTS = ['claude', 'codex', 'opencode', 'kora'] as const;
 /** Set to the client name once a shim ran, so a shim reached again in the same chain (cmux, Fermat) passes through. */
 export const SHIM_GUARD = 'TOONARROW_SHIM_ACTIVE';
+/** Second line of every shim script (platform/posix.ts): how a shim is recognised wherever it is installed. */
+export const SHIM_MARKER = '# toonarrow shim';
 
 const realpathOr = (p: string): string => {
   try {
@@ -59,10 +61,32 @@ export function resolveClientBin(name: string, env: NodeJS.ProcessEnv = process.
   const shim = realpathOr(shimDir);
   const dirs = (env.PATH ?? '').split(delimiter).filter(Boolean);
   const at = dirs.findIndex((d) => realpathOr(d) === shim);
-  const candidates = (at >= 0 ? dirs.slice(at + 1) : dirs).filter((d) => realpathOr(d) !== shim);
-  const found = currentPlatform().resolveExecutable(name, candidates);
-  if (!found) throw new Error(`${name} not found in PATH`);
-  return found;
+  let candidates = (at >= 0 ? dirs.slice(at + 1) : dirs).filter((d) => realpathOr(d) !== shim);
+  for (;;) {
+    const found = currentPlatform().resolveExecutable(name, candidates);
+    if (!found) throw new Error(`${name} not found in PATH`);
+    if (!isShim(found)) return found;
+    // A toonarrow shim outside shimDir (written under another TOONARROW_HOME): running it would start this shim
+    // again, without end. Its directory is skipped.
+    const dir = realpathOr(dirname(found));
+    const rest = candidates.filter((d) => realpathOr(d) !== dir);
+    if (rest.length === candidates.length) throw new Error(`${name} resolves to the toonarrow shim ${found}`);
+    candidates = rest;
+  }
+}
+
+/** True when `path` starts like a script written by shimScript (the first bytes only: clients are large binaries). */
+function isShim(path: string): boolean {
+  let fd: number | undefined;
+  try {
+    fd = openSync(path, 'r');
+    const head = Buffer.alloc(256);
+    return head.subarray(0, readSync(fd, head, 0, head.length, 0)).toString('latin1').includes(SHIM_MARKER);
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
 }
 
 /**

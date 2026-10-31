@@ -34,6 +34,19 @@ test('a shim resolves the real client after its own directory, never itself', ()
   assert.match(shimScript('kora'), /shim kora "\$@"\n$/);
 });
 
+test('a shim installed under another TOONARROW_HOME is skipped, so it never starts itself again', () => {
+  const root = mkdtempSync(join(tmpdir(), 'toonarrow-shim-'));
+  const other = join(root, 'other-home-bin');
+  const real = join(root, 'real');
+  mkdirSync(other);
+  mkdirSync(real);
+  writeFileSync(join(other, 'kora'), shimScript('kora'));
+  writeFileSync(join(real, 'kora'), '#!/bin/sh\necho real\n');
+  for (const dir of [other, real]) chmodSync(join(dir, 'kora'), 0o755);
+  assert.equal(resolveClientBin('kora', { PATH: [other, real].join(':') }, join(root, 'this-home-bin')), join(real, 'kora'));
+  assert.throws(() => resolveClientBin('kora', { PATH: other }, join(root, 'this-home-bin')), /not found in PATH/);
+});
+
 test('launcher flags: brief by default, toonarrow flags never reach the client', () => {
   assert.deepEqual(splitLauncherFlags(['run', '-m', 'x']), { tools: false, brief: true, args: ['run', '-m', 'x'] });
   assert.deepEqual(splitLauncherFlags(['--toonarrow-tools', '--toonarrow-no-brief', 'run']), { tools: true, brief: false, args: ['run'] });
