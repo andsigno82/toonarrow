@@ -138,7 +138,7 @@ function env(client: string | undefined): void {
   const u = baseUrl(loadConfig());
   const snippets: Record<string, string> = {
     claude: `# shell, or "env" in ~/.claude/settings.json\nexport ANTHROPIC_BASE_URL=${u}/anthropic`,
-    codex: `# ~/.codex/config.toml (user-level only)\nmodel_provider = "toonarrow"\n\n[model_providers.toonarrow]\nname = "toonarrow"\nbase_url = "${u}/chatgpt"     # ChatGPT login; use "${u}/openai/v1" + env_key = "OPENAI_API_KEY" for API keys\nwire_api = "responses"\nrequires_openai_auth = true`,
+    codex: `# ~/.codex/config.toml (user-level only): the built-in openai provider through toonarrow\nopenai_base_url = "${u}/chatgpt"     # ChatGPT login; "${u}/openai/v1" with an API key`,
     opencode: `// opencode.json\n{\n  "provider": {\n    "anthropic": { "options": { "baseURL": "${u}/anthropic/v1" } },\n    "openai": { "options": { "baseURL": "${u}/openai/v1" } }\n  }\n}`,
     kora: `# Kora CLI: every remote provider goes through toonarrow (/_via/<scheme>/<host>/<path>)\nexport KORA_LLM_PROXY=${u}`,
   };

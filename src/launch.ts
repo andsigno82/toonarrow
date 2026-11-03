@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
-import { closeSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, writeFileSync } from 'node:fs';
+import { closeSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, dirname, extname, join, resolve } from 'node:path';
+import { basename, delimiter, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HOME_DIR, loadConfig } from './config.ts';
 import { BRIEF_GUIDANCE, fileToolGuidance } from './guidance.ts';
@@ -304,6 +304,120 @@ export async function launchKora(argv: string[]): Promise<number> {
   return run(env.TOONARROW_KORA_BIN ?? resolveClientBin('kora'), args, env);
 }
 
+interface CodexSessionMeta {
+  model_provider?: unknown;
+  cwd?: unknown;
+  source?: unknown;
+}
+
+/** The `session_meta` payload on the first line of a Codex rollout (about 22 KB, base instructions included). */
+function codexSessionMeta(file: string): CodexSessionMeta | undefined {
+  try {
+    const fd = openSync(file, 'r');
+    try {
+      const head = Buffer.alloc(256 * 1024);
+      const line = head.subarray(0, readSync(fd, head, 0, head.length, 0)).toString('utf8').split('\n', 1)[0]!;
+      const payload = JSON.parse(line)?.payload;
+      return payload && typeof payload === 'object' ? payload : undefined;
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return undefined;
+  }
+}
+
+const realpath = (p: string): string => {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+};
+
+// Sessions the resume picker and --last offer by default; `exec` runs and subagent threads need flags or are hidden.
+const INTERACTIVE_SOURCES = new Set(['cli', 'vscode']);
+
+/** Codex's state directory: `$CODEX_HOME`, else ~/.codex. */
+const codexHome = (env: NodeJS.ProcessEnv): string => env.CODEX_HOME ?? join(homedir(), '.codex');
+
+/**
+ * `model_provider` recorded for the session `codex resume`/`fork` reopens, or undefined when the target cannot be
+ * identified (no resume, interactive picker, session name, archived or missing rollout). Only toonarrow 0.1.x
+ * sessions, recorded under the custom `toonarrow` provider, need it: Codex refuses a resume whose recorded provider
+ * differs from the current one (modelProviderMismatch). `--last` follows Codex's filters: the newest session of the
+ * working directory (`-C`/`--cd`, any directory with `--all`), interactive only unless `--include-non-interactive`.
+ */
+export function codexResumeProvider(args: string[], env: NodeJS.ProcessEnv = process.env, cwd: string = process.cwd()): string | undefined {
+  const at = args.findIndex((a) => a === 'resume' || a === 'fork');
+  if (at < 0) return undefined;
+  const rest = args.slice(at + 1);
+  const sessions = join(codexHome(env), 'sessions');
+  let rollouts: string[];
+  try {
+    rollouts = (readdirSync(sessions, { recursive: true }) as string[]).filter((f) => /^rollout-.*\.jsonl$/.test(basename(f))).map((f) => join(sessions, f));
+  } catch {
+    return undefined;
+  }
+  const provider = (meta: CodexSessionMeta | undefined): string | undefined => (typeof meta?.model_provider === 'string' ? meta.model_provider : undefined);
+  const id = rest.find((a) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(a));
+  if (id) {
+    const file = rollouts.find((f) => f.endsWith(`-${id.toLowerCase()}.jsonl`));
+    return file ? provider(codexSessionMeta(file)) : undefined;
+  }
+  if (!rest.includes('--last')) return undefined;
+  const cdAt = args.findIndex((a) => a === '-C' || a === '--cd');
+  const cd = cdAt >= 0 ? args[cdAt + 1] : args.find((a) => a.startsWith('--cd='))?.slice(5);
+  const dir = rest.includes('--all') ? undefined : realpath(resolve(cwd, cd ?? '.'));
+  const interactiveOnly = !rest.includes('--include-non-interactive');
+  const recent = rollouts
+    .map((f) => {
+      try {
+        return { f, t: statSync(f).mtimeMs };
+      } catch {
+        return { f, t: 0 };
+      }
+    })
+    .sort((a, b) => b.t - a.t);
+  for (const { f } of recent) {
+    const meta = codexSessionMeta(f);
+    if (!meta) continue;
+    if (dir !== undefined && (typeof meta.cwd !== 'string' || realpath(meta.cwd) !== dir)) continue;
+    if (interactiveOnly && !(typeof meta.source === 'string' && INTERACTIVE_SOURCES.has(meta.source))) continue;
+    return provider(meta);
+  }
+  return undefined;
+}
+
+/**
+ * True when Codex is signed in with an API key: `auth_mode` "apikey" in `$CODEX_HOME/auth.json`, the value Codex
+ * writes for `codex login --with-api-key`. Only that field is read. A ChatGPT sign-in, or credentials kept in the OS
+ * keyring (no auth.json), gives false.
+ */
+export function codexApiKeyAuth(env: NodeJS.ProcessEnv = process.env): boolean {
+  try {
+    return JSON.parse(readFileSync(join(codexHome(env), 'auth.json'), 'utf8'))?.auth_mode === 'apikey';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * How Codex reaches the model through toonarrow: the built-in `openai` provider pointed at the proxy with
+ * `openai_base_url`, Codex's documented seam for an LLM proxy. Sessions stay recorded as `openai`, so plain codex and
+ * the IDE extension resume them and the other way round, and Codex keeps its WebSocket transport (relayed by the
+ * proxy). Sessions recorded by toonarrow 0.1.x under the custom `toonarrow` provider resume with that provider:
+ * through the proxy, or straight to the ChatGPT backend when it is down, so they still open, uncompressed.
+ */
+export function codexProviderOverrides(resumed: string | undefined, up: boolean, base: string, apiKey = false): string[] {
+  if (resumed === 'toonarrow') {
+    const url = up ? `${base}/chatgpt` : 'https://chatgpt.com/backend-api/codex';
+    return ['-c', 'model_provider=toonarrow', '-c', `model_providers.toonarrow={name="toonarrow",base_url=${JSON.stringify(url)},wire_api="responses",requires_openai_auth=true}`];
+  }
+  // openai_base_url replaces the ChatGPT backend or the API base, whichever the sign-in uses.
+  return up ? ['-c', `openai_base_url=${JSON.stringify(`${base}/${apiKey ? 'openai/v1' : 'chatgpt'}`)}`] : [];
+}
+
 export async function launchCodex(argv: string[]): Promise<number> {
   const { brief, args } = splitLauncherFlags(argv);
   const config = loadConfig();
@@ -313,11 +427,10 @@ export async function launchCodex(argv: string[]): Promise<number> {
   const extra = ['-c', `mcp_servers.toonarrow={command=${toml(process.execPath)},args=[${[...NODE_ARGS, 'mcp'].map(toml).join(',')}]}`];
   // Appended to Codex's base instructions; as a -c override it takes the place of a developer_instructions in config.toml.
   if (brief) extra.push('-c', `developer_instructions=${toml(BRIEF_GUIDANCE)}`);
-  if (await proxyUp(base)) {
-    // ChatGPT login; for API keys point base_url at /openai/v1 with env_key instead (see `toonarrow env codex`).
-    extra.push('-c', 'model_provider=toonarrow', '-c', `model_providers.toonarrow={name="toonarrow",base_url=${toml(`${base}/chatgpt`)},wire_api="responses",requires_openai_auth=true}`);
-  } else {
-    console.error(`toonarrow: proxy not running on ${base} (start it with "toonarrow serve" or "toonarrow install"); continuing with tools only`);
-  }
+  const resumed = codexResumeProvider(args, env);
+  const up = await proxyUp(base);
+  if (!up && resumed === 'toonarrow') console.error(`toonarrow: proxy not running on ${base}; resuming against the ChatGPT backend directly, uncompressed`);
+  else if (!up) console.error(`toonarrow: proxy not running on ${base} (start it with "toonarrow serve" or "toonarrow install"); continuing with tools only`);
+  extra.push(...codexProviderOverrides(resumed, up, base, codexApiKeyAuth(env)));
   return run(env.TOONARROW_CODEX_BIN ?? resolveClientBin('codex'), [...extra, ...args], env);
 }

@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chmodSync } from 'node:fs';
-import { opencodeConfig, opencodeOpenaiAuth, preToolUseHook, resolveClientBin, shimScript, splitLauncherFlags, withShimPathBlock } from '../src/launch.ts';
+import { codexApiKeyAuth, codexProviderOverrides, codexResumeProvider, opencodeConfig, opencodeOpenaiAuth, preToolUseHook, resolveClientBin, shimScript, splitLauncherFlags, withShimPathBlock } from '../src/launch.ts';
 
 test('shim PATH block in the shell rc is idempotent and removable', () => {
   const rc = 'export FOO=1\nalias ll="ls -l"\n';
@@ -83,6 +83,63 @@ test('opencode config with --toonarrow-tools: direct MCP tools, native file tool
   assert.equal(c.tools.apply_patch, false);
   assert.equal(c.permission, undefined);
   assert.deepEqual(c.instructions, ['/tmp/i.md']);
+});
+
+test('codex resume: the provider recorded in the rollout is read from session_meta', () => {
+  const home = mkdtempSync(join(tmpdir(), 'toonarrow-codex-'));
+  const day = join(home, 'sessions', '2026', '11', '03');
+  mkdirSync(day, { recursive: true });
+  const id = '01a1a0fc-b550-7b92-813a-7760a03fc38c';
+  writeFileSync(join(day, `rollout-2026-11-03T11-37-58-${id}.jsonl`), JSON.stringify({ type: 'session_meta', payload: { model_provider: 'openai' } }) + '\n');
+  const env = { CODEX_HOME: home };
+  assert.equal(codexResumeProvider(['resume', id], env), 'openai');
+  assert.equal(codexResumeProvider(['fork', id], env), 'openai');
+  assert.equal(codexResumeProvider(['resume'], env), undefined);
+  assert.equal(codexResumeProvider(['exec'], env), undefined);
+  assert.equal(codexResumeProvider(['resume', 'ffffffff-0000-0000-0000-000000000000'], env), undefined);
+});
+
+test('codex resume --last: newest interactive session of the working directory, like Codex', () => {
+  const home = mkdtempSync(join(tmpdir(), 'toonarrow-codex-'));
+  const day = join(home, 'sessions', '2026', '11', '03');
+  mkdirSync(day, { recursive: true });
+  const env = { CODEX_HOME: home };
+  const session = (n: number, payload: object, mtime: number): void => {
+    const f = join(day, `rollout-2026-11-03T12-00-0${n}-ffffffff-0000-0000-0000-00000000000${n}.jsonl`);
+    writeFileSync(f, JSON.stringify({ type: 'session_meta', payload }) + '\n');
+    utimesSync(f, mtime, mtime);
+  };
+  session(1, { model_provider: 'toonarrow', cwd: '/repo/a', source: 'cli' }, 1000);
+  session(2, { model_provider: 'openai', cwd: '/repo/b', source: 'vscode' }, 2000);
+  session(3, { model_provider: 'other', cwd: '/repo/a', source: 'exec' }, 3000);
+  assert.equal(codexResumeProvider(['resume', '--last'], env, '/repo/a'), 'toonarrow', 'exec runs are skipped');
+  assert.equal(codexResumeProvider(['resume', '--last', '--include-non-interactive'], env, '/repo/a'), 'other');
+  assert.equal(codexResumeProvider(['resume', '--last', '--all'], env, '/repo/a'), 'openai', 'newest interactive anywhere');
+  assert.equal(codexResumeProvider(['-C', '/repo/b', 'resume', '--last'], env, '/repo/a'), 'openai');
+  assert.equal(codexResumeProvider(['resume', '--last'], env, '/repo/none'), undefined);
+});
+
+test('codex provider overrides: openai_base_url to the proxy, legacy toonarrow sessions keep their provider', () => {
+  const p = (resumed: string | undefined, up: boolean) => codexProviderOverrides(resumed, up, 'http://127.0.0.1:48700').join(' ');
+  assert.equal(p(undefined, true), '-c openai_base_url="http://127.0.0.1:48700/chatgpt"');
+  assert.equal(p('openai', true), '-c openai_base_url="http://127.0.0.1:48700/chatgpt"');
+  assert.equal(p('openai', false), '');
+  assert.equal(p(undefined, false), '');
+  assert.ok(p('toonarrow', true).includes('model_provider=toonarrow'));
+  assert.ok(p('toonarrow', true).includes('base_url="http://127.0.0.1:48700/chatgpt"'));
+  assert.ok(p('toonarrow', false).includes('base_url="https://chatgpt.com/backend-api/codex"'));
+  assert.equal(codexProviderOverrides('openai', true, 'http://h', true).join(' '), '-c openai_base_url="http://h/openai/v1"', 'API key sign-in');
+  assert.equal(codexProviderOverrides(undefined, false, 'http://h', true).join(' '), '');
+});
+
+test('codex sign-in type: only auth_mode "apikey" routes to the API base', () => {
+  const home = mkdtempSync(join(tmpdir(), 'toonarrow-codex-'));
+  const env = { CODEX_HOME: home };
+  assert.equal(codexApiKeyAuth(env), false, 'no auth.json (keyring store)');
+  for (const [mode, expected] of [['apikey', true], ['chatgpt', false], ['chatgptAuthTokens', false]] as const) {
+    writeFileSync(join(home, 'auth.json'), JSON.stringify({ auth_mode: mode, OPENAI_API_KEY: null }));
+    assert.equal(codexApiKeyAuth(env), expected, mode);
+  }
 });
 
 test('hook is inert unless the session was started by toonarrow', async () => {
