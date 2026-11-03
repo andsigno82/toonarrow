@@ -2,7 +2,10 @@ import { type Rule, hasArg } from './common.ts';
 
 export const gitStatus: Rule = {
   name: 'git-status',
-  match: (cmd) => cmd.prog === 'git' && cmd.sub === 'status' && !hasArg(cmd, '--porcelain', '-s', '--short'),
+  byFormat: true,
+  match: (cmd, out) =>
+    (cmd.prog === 'git' && cmd.sub === 'status' && !hasArg(cmd, '--porcelain', '-s', '--short')) ||
+    (/^On branch \S/m.test(out) && /Changes (not staged|to be committed)|Untracked files|nothing to commit|working tree clean/.test(out)),
   apply: (lines) => lines.filter((l) => !/^\s+\(use "git .*"\)$/.test(l) && !/^\s+\(.*"git .*".*\)$/.test(l)),
 };
 
@@ -13,11 +16,13 @@ function isoDay(date: string): string {
 
 export const gitLog: Rule = {
   name: 'git-log',
-  match: (cmd) =>
-    cmd.prog === 'git' &&
-    cmd.sub === 'log' &&
-    !hasArg(cmd, '--oneline', '--format', '--pretty', '-p', '--patch', '--graph') &&
-    !cmd.args.some((a) => /^-[a-zA-Z]*p/.test(a) && !a.startsWith('--')),
+  byFormat: true,
+  match: (cmd, out) =>
+    (cmd.prog === 'git' &&
+      cmd.sub === 'log' &&
+      !hasArg(cmd, '--oneline', '--format', '--pretty', '-p', '--patch', '--graph') &&
+      !cmd.args.some((a) => /^-[a-zA-Z]*p/.test(a) && !a.startsWith('--'))) ||
+    (out.match(/^commit [0-9a-f]{40}/gm)?.length ?? 0) >= 2,
   apply(lines) {
     const out: string[] = [];
     let i = 0;

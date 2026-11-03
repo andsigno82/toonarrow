@@ -4,7 +4,8 @@ const LS_LONG = /^([-dlcbps])[-rwxsStTlL]{9}[@+.]?\s+\d+\s+\S+\s+\S+\s+(\S+)\s+(
 
 export const lsLong: Rule = {
   name: 'ls-long',
-  match: (cmd) => cmd.prog === 'ls' && hasShortFlag(cmd, 'l'),
+  byFormat: true,
+  match: (cmd, out) => (cmd.prog === 'ls' && hasShortFlag(cmd, 'l')) || /^[-dlcbps][-rwxsStTlL]{9}[@+.]?\s/m.test(out),
   apply(lines) {
     let entries = 0;
     const out: string[] = [];
@@ -59,47 +60,91 @@ export function commonDir(paths: string[]): string {
   return slash > 0 ? prefix.slice(0, slash + 1) : '';
 }
 
+/**
+ * A `path:N:text` hit counts as grep output only when the path looks like one: without `/` or an extension the
+ * pattern also matches timestamps and other `word:digits:text` prose.
+ */
+const LOOKS_PATH = /[/\\]|\.\w{1,8}$/;
+const grepHit = (m: RegExpExecArray | null): m is RegExpExecArray => m !== null && LOOKS_PATH.test(m[1]!);
+
+const GREP_RUN = 4;
+/** [start, end) spans of at least GREP_RUN consecutive grep lines: long enough to be tool output, not prose. */
+function formatRuns(parsed: (RegExpExecArray | null)[]): [number, number][] {
+  const runs: [number, number][] = [];
+  let start = -1;
+  for (let i = 0; i <= parsed.length; i++) {
+    const hit = i < parsed.length && grepHit(parsed[i]!);
+    if (hit && start < 0) start = i;
+    else if (!hit && start >= 0) {
+      if (i - start >= GREP_RUN) runs.push([start, i]);
+      start = -1;
+    }
+  }
+  return runs;
+}
+
+const isGrep = (cmd: Cmd): boolean => ['grep', 'egrep', 'rg', 'ag'].includes(cmd.prog) || (cmd.prog === 'git' && cmd.sub === 'grep');
+
+function compressBlock(block: string[], cmd: Cmd): string[] {
+  const parsed = block.map(grepLine);
+  const paths = parsed.filter((m): m is RegExpExecArray => m !== null).map((m) => m[1]!);
+  const prefix = commonDir(paths);
+  const pattern = grepPattern(cmd);
+  const ignoreCase = hasShortFlag(cmd, 'i');
+  const out: string[] = prefix ? [`# paths below are relative to ${prefix}`] : [];
+  let current = '';
+  let shown = 0;
+  let hidden = 0;
+  const flushHidden = (): void => {
+    if (hidden) out.push(`  … +${hidden} more in this file (narrow the search to see them)`);
+    hidden = 0;
+  };
+  for (let k = 0; k < block.length; k++) {
+    const m = parsed[k];
+    if (!m) {
+      flushHidden();
+      out.push(truncate(block[k]!));
+      current = '';
+      continue;
+    }
+    const path = m[1]!.slice(prefix.length);
+    if (path !== current) {
+      flushHidden();
+      out.push(`${path}:`);
+      current = path;
+      shown = 0;
+    }
+    if (shown >= GREP_PER_FILE) {
+      hidden++;
+      continue;
+    }
+    shown++;
+    out.push(`  ${m[3]}${m[2] === '-' ? '-' : ':'} ${windowAround(m[4]!.trim(), pattern, ignoreCase)}`);
+  }
+  flushHidden();
+  return out;
+}
+
 export const grep: Rule = {
   name: 'grep',
-  match: (cmd) => ['grep', 'egrep', 'rg', 'ag'].includes(cmd.prog) || (cmd.prog === 'git' && cmd.sub === 'grep'),
+  byFormat: true,
+  match: (cmd, out) => isGrep(cmd) || formatRuns(out.split('\n').map(grepLine)).length > 0,
   apply(lines, cmd) {
-    const parsed = lines.map(grepLine);
-    if (parsed.filter(Boolean).length < lines.length * 0.6) return null;
-    const paths = parsed.filter((m): m is RegExpExecArray => m !== null).map((m) => m[1]!);
-    const prefix = commonDir(paths);
-    const pattern = grepPattern(cmd);
-    const ignoreCase = hasShortFlag(cmd, 'i');
-    const out: string[] = prefix ? [`# paths below are relative to ${prefix}`] : [];
-    let current = '';
-    let shown = 0;
-    let hidden = 0;
-    const flushHidden = (): void => {
-      if (hidden) out.push(`  … +${hidden} more in this file (narrow the search to see them)`);
-      hidden = 0;
-    };
-    for (let k = 0; k < lines.length; k++) {
-      const m = parsed[k];
-      if (!m) {
-        flushHidden();
-        out.push(truncate(lines[k]!));
-        current = '';
-        continue;
-      }
-      const path = m[1]!.slice(prefix.length);
-      if (path !== current) {
-        flushHidden();
-        out.push(`${path}:`);
-        current = path;
-        shown = 0;
-      }
-      if (shown >= GREP_PER_FILE) {
-        hidden++;
-        continue;
-      }
-      shown++;
-      out.push(`  ${m[3]}${m[2] === '-' ? '-' : ':'} ${windowAround(m[4]!.trim(), pattern, ignoreCase)}`);
+    // The command is a grep: most lines must parse as matches. Any other origin (compound, `cat`): only rewrite
+    // runs of consecutive grep-looking lines and keep the rest byte for byte.
+    if (isGrep(cmd)) {
+      const parsed = lines.map(grepLine);
+      return parsed.filter(Boolean).length >= lines.length * 0.6 ? compressBlock(lines, cmd) : null;
     }
-    flushHidden();
+    const runs = formatRuns(lines.map(grepLine));
+    if (!runs.length) return null;
+    const out: string[] = [];
+    let pos = 0;
+    for (const [start, end] of runs) {
+      out.push(...lines.slice(pos, start), ...compressBlock(lines.slice(start, end), cmd));
+      pos = end;
+    }
+    out.push(...lines.slice(pos));
     return out;
   },
 };

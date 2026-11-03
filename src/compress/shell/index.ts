@@ -31,19 +31,28 @@ export function compressBashOutput(command: string, output: string): BashCompres
   if (lines.length < MIN_LINES) return passthrough(output, 'short');
 
   const target = ruleTarget(command);
-  // Ambiguous origin (pipes, several commands): only rules that work on the output format alone.
+  // Ambiguous origin (several commands, rewriting filters): only rules that work on the output format alone.
   const cmd = target === undefined ? NO_CMD : parseCommand(target);
   let chosen: Rule | undefined;
   let result: string[] | null = null;
   for (const r of RULES) {
     if ((target === undefined && !r.byFormat) || !r.match(cmd, output)) continue;
-    result = r.apply(r.verbatim ? stripAnsi(output).split('\n') : lines, cmd);
-    if (result) {
+    const candidate = r.apply(r.verbatim ? stripAnsi(output).split('\n') : lines, cmd);
+    if (!candidate) {
+      // Whitespace-sensitive output the rule declined (a diff with nothing to drop) must not get the generic cleanup.
+      if (r.verbatim) return passthrough(output, `${r.name}:unchanged`);
+      continue;
+    }
+    if (target !== undefined) {
       chosen = r;
+      result = candidate;
       break;
     }
-    // Whitespace-sensitive output the rule declined (a diff with nothing to drop) must not get the generic cleanup.
-    if (r.verbatim) return passthrough(output, `${r.name}:unchanged`);
+    // Each format rule rewrites only its own region: the one that removes the most bytes wins.
+    if (!result || candidate.join('\n').length < result.join('\n').length) {
+      chosen = r;
+      result = candidate;
+    }
   }
   const rule = chosen?.name ?? 'generic';
   const hatch = isCompound(command) ? 'wrapped as `( … ) | cat`' : 'piped through `| cat`';
