@@ -160,6 +160,7 @@ usage:
   toonarrow install | uninstall           background service (launchd on macOS, systemd --user on Linux), ~/.local/bin/toonarrow wrapper, client shims (claude, codex, opencode, kora)
   toonarrow env <claude|codex|opencode|kora>
   toonarrow skills [--min N] [--write]    rank skills by use (OpenCode, Claude Code, Kora); --write keeps descriptions only for those
+  toonarrow estimate [--days N]           what toonarrow would save on your local Claude Code, Codex, OpenCode and Kora history (default 30 days)
   toonarrow mcp                           MCP stdio server with the Search and Edit tools
   toonarrow claude [args]                 run Claude Code through toonarrow (proxy, MCP tools, native file tools gated)
   toonarrow codex [--toonarrow-tools] [args] run Codex through toonarrow (proxy, short-answer rule; --toonarrow-tools adds the Search/Edit MCP tools)
@@ -191,6 +192,18 @@ async function main(argv: string[]): Promise<void> {
       return uninstall();
     case 'env':
       return env(args[0]);
+    case 'estimate': {
+      const i = args.indexOf('--days');
+      const days = i >= 0 ? Number(args[i + 1]) : 30;
+      if (!Number.isFinite(days) || days <= 0) {
+        console.error('usage: toonarrow estimate [--days N]');
+        process.exitCode = 2;
+        return;
+      }
+      const { estimateAll, formatEstimate } = await import('./estimate.ts');
+      console.log(formatEstimate(await estimateAll(days, loadConfig().compress), days));
+      return;
+    }
     case 'skills':
       return skills(args);
     case 'mcp':
