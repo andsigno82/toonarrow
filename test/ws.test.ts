@@ -159,3 +159,16 @@ test('websocket: only Responses API paths of known upstreams are relayed', async
   assert.deepEqual(await upgradeStatus('/nope/responses'), { status: 404, kind: 'route' });
   assert.deepEqual(await upgradeStatus('/_toonarrow/health'), { status: 404, kind: 'route' });
 });
+
+test('websocket: the Codex skill listing of a turn is regrouped and its saving recorded', async () => {
+  const listing = '<skills_instructions>\n### Skill roots\n- `r1` = `/u/.agents/skills`\n### Available skills\n' + Array.from({ length: 12 }, (_, i) => `- skill-${i}: (file: r1/skill-${i}/SKILL.md)`).join('\n') + '\n</skills_instructions>';
+  const turn = { type: 'response.create', model: 'gpt-test', stream: true, store: false, input: [{ type: 'message', role: 'developer', content: [{ type: 'input_text', text: listing }] }] };
+  const before = received.length;
+  await conversation('/fake/responses', [turn]);
+  const sent = received[before]!.input[0].content[0].text as string;
+  assert.ok(sent.includes('- r1: skill-0, skill-1') && sent.length < listing.length);
+  const entries = await waitForLedger(4);
+  const entry = entries.find((e) => (e.skills?.skillsCharsSaved ?? 0) > 0);
+  assert.equal(entry?.skills?.skillsHidden, 0);
+  assert.equal(entry?.skills?.skillsCharsSaved, listing.length - sent.length);
+});

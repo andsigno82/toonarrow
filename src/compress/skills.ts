@@ -18,6 +18,63 @@ const KORA_LISTING = /## Available Skills\n[^\n]*\n\n((?:- \*\*[^\n]+?\*\*:[^\n]
 const KORA_ENTRY = /^- \*\*(.+?)\*\*:/;
 
 /**
+ * Codex skill listing (`<skills_instructions>`, Codex 0.16x): a `### Skill roots` table (`- \`r1\` = \`/path\``)
+ * and `### Available skills` with one `- name: [description ](file: rN/path/SKILL.md)` line per skill.
+ */
+const CODEX_LISTING = /### Available skills\n((?:- [^\n]+\(file: [^\n]+\)(?:\n|$))+)/;
+const CODEX_ENTRY = /^- ([^:\n]+): (.*?)\(file: ([^\n)]+)\)$/;
+const CODEX_GROUP_NOTE = '- Grouped by root: each skill listed under a root is at `<root>/<name>/SKILL.md`.';
+
+/**
+ * Codex listing, lossless: every entry without a description whose file is `<root>/<name>/SKILL.md` joins one
+ * `- rN: a, b, c` line per root (placed where that root's first entry was); entries with a description or
+ * another path stay as they are. With `keep` (compress.skills on), the description of a skill outside `keep`
+ * is dropped first, like in the other formats.
+ */
+export function compactCodexListing(text: string, keep?: ReadonlySet<string>): { text: string; hidden: number } {
+  const m = CODEX_LISTING.exec(text);
+  if (!m) return { text, hidden: 0 };
+  const block = m[1]!;
+  const lines = block.split('\n').filter(Boolean);
+  const out: Array<string | { root: string; names: string[] }> = [];
+  const groups = new Map<string, { root: string; names: string[] }>();
+  let hidden = 0;
+  let grouped = 0;
+  for (const line of lines) {
+    const e = CODEX_ENTRY.exec(line);
+    if (!e) {
+      out.push(line);
+      continue;
+    }
+    const [, name, rawDesc, file] = e as unknown as [string, string, string, string];
+    let desc = rawDesc.trim();
+    if (desc && keep && !keep.has(name)) {
+      desc = '';
+      hidden++;
+    }
+    const path = /^(r\d+)\/([^/]+)\/SKILL\.md$/.exec(file);
+    if (desc || !path || path[2] !== name) {
+      out.push(desc === rawDesc.trim() ? line : `- ${name}: (file: ${file})`);
+      continue;
+    }
+    let g = groups.get(path[1]!);
+    if (!g) {
+      g = { root: path[1]!, names: [] };
+      groups.set(g.root, g);
+      out.push(g);
+    }
+    g.names.push(name);
+    grouped++;
+  }
+  if (grouped < 2 && !hidden) return { text, hidden: 0 };
+  const listing = [CODEX_GROUP_NOTE, ...out.map((x) => (typeof x === 'string' ? x : `- ${x.root}: ${x.names.join(', ')}`))].join('\n');
+  const start = m.index + m[0].length - block.length;
+  const next = text.slice(0, start) + listing + (block.endsWith('\n') ? '\n' : '') + text.slice(start + block.length);
+  // A short listing would only grow by the note: leave it as it is.
+  return next.length < text.length ? { text: next, hidden } : { text, hidden: 0 };
+}
+
+/**
  * Keeps the full entry of the skills in `keep` (matched by id or name) and lists every other skill
  * by id only, in the OpenCode and Kora CLI formats. A pure function of (text, keep): the rewritten
  * system prompt stays cache-stable.
@@ -85,16 +142,20 @@ function systemSlots(body: Json, wire: Wire): Array<[Json, string | number]> {
   return slots;
 }
 
-/** Compacts the skill listing in the system texts of a request body, in place. */
-export function rewriteSkills(body: Json, wire: Wire, keep: ReadonlySet<string>): SkillStats {
+/**
+ * Compacts the skill listing in the system texts of a request body, in place. Without `keep` (compress.skills
+ * off) only the lossless Codex regrouping runs; with it, every format drops the descriptions outside `keep`.
+ */
+export function rewriteSkills(body: Json, wire: Wire, keep?: ReadonlySet<string>): SkillStats {
   const stats: SkillStats = { skillsHidden: 0, skillsCharsSaved: 0 };
   for (const [holder, key] of systemSlots(body, wire)) {
     const before = holder[key] as string;
-    const r = compactSkillListing(before, keep);
-    if (!r.hidden) continue;
-    holder[key] = r.text;
-    stats.skillsHidden += r.hidden;
-    stats.skillsCharsSaved += before.length - r.text.length;
+    const listed = keep ? compactSkillListing(before, keep) : { text: before, hidden: 0 };
+    const codex = compactCodexListing(listed.text, keep);
+    if (codex.text === before) continue;
+    holder[key] = codex.text;
+    stats.skillsHidden += listed.hidden + codex.hidden;
+    stats.skillsCharsSaved += before.length - codex.text.length;
   }
   return stats;
 }

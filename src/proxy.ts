@@ -154,7 +154,7 @@ export function createProxyServer(opts: ProxyOptions): http.Server {
       ...(body !== original ? { sentBytes: body.length } : {}),
       ...meta,
       ...(rewrote(compression) ? { compression } : {}),
-      ...(skills?.skillsHidden ? { skills } : {}),
+      ...(skills && (skills.skillsHidden > 0 || skills.skillsCharsSaved > 0) ? { skills } : {}),
     };
     let recorded = false;
     const record = (patch: Partial<LedgerEntry>): void => {

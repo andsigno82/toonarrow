@@ -34,6 +34,9 @@ export function rewriteRequest(
     else if (wire === 'openai-responses') compression = rewriteResponses(json, memo, state);
     else if (wire === 'openai-chat') compression = rewriteChat(json, memo);
   }
-  const skills = compress.skills ? rewriteSkills(json, wire, memo ? memo.keepSkills(keepSkills) : keepSkills) : undefined;
-  return { compression, skills, changed: rewrote(compression) || !!skills?.skillsHidden };
+  // The lossless Codex regrouping always runs; dropping descriptions needs compress.skills.
+  const keep = compress.skills ? (memo ? memo.keepSkills(keepSkills) : keepSkills) : undefined;
+  const rewritten = rewriteSkills(json, wire, keep);
+  const skills = compress.skills || rewritten.skillsCharsSaved > 0 ? rewritten : undefined;
+  return { compression, skills, changed: rewrote(compression) || (skills?.skillsHidden ?? 0) > 0 || (skills?.skillsCharsSaved ?? 0) > 0 };
 }

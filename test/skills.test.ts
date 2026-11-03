@@ -118,3 +118,41 @@ test('reads skill usage from the OpenCode database and Claude Code transcripts',
   await readClaudeUsage(join(dir, 'projects'), usage);
   assert.deepEqual(Object.fromEntries(usage), { code: { opencode: 1, claude: 1, kora: 0 }, 'git-ops': { opencode: 1, claude: 0, kora: 0 } });
 });
+
+// Codex 0.166 `<skills_instructions>`: roots table, then one `- name: [description ](file: rN/path)` line per skill.
+const codexListing = (entries: string[]): string =>
+  '<skills_instructions>\n## Skills\nA skill is ...\n### Skill roots\n- `r0` = `/Users/u/.codex/skills`\n- `r1` = `/Users/u/.agents/skills`\n### Available skills\n' +
+  entries.join('\n') +
+  '\n</skills_instructions>';
+
+test('codex skill listing: flat entries regroup per root, losslessly and idempotently; others stay', () => {
+  const text = codexListing([
+    '- imagegen: (file: r0/imagegen/SKILL.md)',
+    '- ab-testing: (file: r1/ab-testing/SKILL.md)',
+    '- qdrant-search: (file: r1/qdrant/search/SKILL.md)',
+    '- code: Expert coding workflow. (file: r1/code/SKILL.md)',
+    '- zod: (file: r1/zod/SKILL.md)',
+    ...Array.from({ length: 6 }, (_, i) => `- tool-${i}: (file: r1/tool-${i}/SKILL.md)`),
+  ]);
+  const body = { input: [{ type: 'message', role: 'developer', content: [{ type: 'input_text', text }] }] };
+  const stats = rewriteSkills(body, 'openai-responses');
+  const out = (body.input[0]!.content[0] as { text: string }).text;
+  assert.equal(stats.skillsHidden, 0);
+  assert.ok(stats.skillsCharsSaved > 0);
+  assert.ok(out.includes('- Grouped by root: each skill listed under a root is at `<root>/<name>/SKILL.md`.\n- r0: imagegen\n- r1: ab-testing, zod, tool-0, tool-1, tool-2, tool-3, tool-4, tool-5\n'));
+  assert.ok(out.includes('- qdrant-search: (file: r1/qdrant/search/SKILL.md)'), 'nested path kept');
+  assert.ok(out.includes('- code: Expert coding workflow. (file: r1/code/SKILL.md)'), 'description kept without compress.skills');
+  assert.ok(out.endsWith('\n</skills_instructions>'));
+  const again = structuredClone(body);
+  assert.equal(rewriteSkills(again, 'openai-responses').skillsCharsSaved, 0);
+  assert.deepEqual(again, body);
+  // Too few flat entries to pay for the note: unchanged.
+  const short = { input: [{ type: 'message', role: 'developer', content: [{ type: 'input_text', text: codexListing(['- a: (file: r0/a/SKILL.md)', '- b: (file: r0/b/SKILL.md)']) }] }] };
+  assert.equal(rewriteSkills(short, 'openai-responses').skillsCharsSaved, 0);
+
+  // compress.skills on: descriptions outside the keep set go, and the entry joins its root.
+  const kept = { input: [{ type: 'message', role: 'developer', content: [{ type: 'input_text', text }] }] };
+  const s2 = rewriteSkills(kept, 'openai-responses', new Set(['imagegen']));
+  assert.equal(s2.skillsHidden, 1);
+  assert.ok((kept.input[0]!.content[0] as { text: string }).text.includes('- r1: ab-testing, code, zod, tool-0'));
+});

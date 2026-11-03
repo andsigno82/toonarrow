@@ -158,7 +158,7 @@ function relay(ctx: SocketContext, req: IncomingMessage, client: WebSocket, up: 
       ...meta,
       stream: true,
       ...(rewrote(compression) ? { compression } : {}),
-      ...(skills?.skillsHidden ? { skills } : {}),
+      ...(skills && (skills.skillsHidden > 0 || skills.skillsCharsSaved > 0) ? { skills } : {}),
     };
     turns.push({ entry, started: performance.now() });
     ctx
