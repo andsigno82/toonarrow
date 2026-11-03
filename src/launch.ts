@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { basename, delimiter, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HOME_DIR, loadConfig } from './config.ts';
+import { codexDeveloperInstructions } from './codex-config.ts';
 import { BRIEF_GUIDANCE, fileToolGuidance } from './guidance.ts';
 import { currentPlatform } from './platform/index.ts';
 
@@ -418,19 +419,38 @@ export function codexProviderOverrides(resumed: string | undefined, up: boolean,
   return up ? ['-c', `openai_base_url=${JSON.stringify(`${base}/${apiKey ? 'openai/v1' : 'chatgpt'}`)}`] : [];
 }
 
+/** Codex code mode exposes MCP tools as nested tools of `exec`, possibly left out of its description (deferred). */
+const CODEX_TOOLS_NOTE =
+  'They are nested tools of exec: call `await tools.mcp__toonarrow__Search({...})` and `await tools.mcp__toonarrow__Edit({...})`; they may be missing from the exec description but are listed in ALL_TOOLS.';
+
+/**
+ * The `-c` overrides for toonarrow's guidance and tools. A `developer_instructions` override replaces the
+ * configured one, so the configured text comes first and toonarrow's sections follow; when it cannot be read
+ * the guidance is left out rather than dropping the user's instructions.
+ */
+export function codexGuidanceOverrides(tools: boolean, brief: boolean, own: { value?: string; unreadable?: string }): { args: string[]; warning?: string } {
+  const toml = (s: string): string => JSON.stringify(s);
+  const args = tools ? ['-c', `mcp_servers.toonarrow={command=${toml(process.execPath)},args=[${[...NODE_ARGS, 'mcp'].map(toml).join(',')}]}`] : [];
+  const sections = [...(brief ? [BRIEF_GUIDANCE] : []), ...(tools ? [fileToolGuidance('tools.mcp__toonarrow__Search', 'tools.mcp__toonarrow__Edit', CODEX_TOOLS_NOTE)] : [])];
+  if (!sections.length) return { args };
+  if (own.unreadable) return { args, warning: `toonarrow: developer_instructions in ${own.unreadable} is not a plain TOML string; toonarrow's guidance is not added` };
+  return { args: [...args, '-c', `developer_instructions=${toml([own.value?.trim(), ...sections].filter(Boolean).join('\n\n'))}`] };
+}
+
 export async function launchCodex(argv: string[]): Promise<number> {
-  const { brief, args } = splitLauncherFlags(argv);
+  const { tools, brief, args } = splitLauncherFlags(argv);
   const config = loadConfig();
   const base = `http://${config.host}:${config.port}`;
   const env = cleanEnv();
-  const toml = (s: string): string => JSON.stringify(s);
-  const extra = ['-c', `mcp_servers.toonarrow={command=${toml(process.execPath)},args=[${[...NODE_ARGS, 'mcp'].map(toml).join(',')}]}`];
-  // Appended to Codex's base instructions; as a -c override it takes the place of a developer_instructions in config.toml.
-  if (brief) extra.push('-c', `developer_instructions=${toml(BRIEF_GUIDANCE)}`);
+  // The MCP file tools are opt-in on Codex: its code mode defers MCP tools (not described to the model), and
+  // for plain file reads Search returns no fewer bytes than cat.
+  const guidance = codexGuidanceOverrides(tools, brief, codexDeveloperInstructions(args, env));
+  if (guidance.warning) console.error(guidance.warning);
+  const extra = [...guidance.args];
   const resumed = codexResumeProvider(args, env);
   const up = await proxyUp(base);
   if (!up && resumed === 'toonarrow') console.error(`toonarrow: proxy not running on ${base}; resuming against the ChatGPT backend directly, uncompressed`);
-  else if (!up) console.error(`toonarrow: proxy not running on ${base} (start it with "toonarrow serve" or "toonarrow install"); continuing with tools only`);
+  else if (!up) console.error(`toonarrow: proxy not running on ${base} (start it with "toonarrow serve" or "toonarrow install"); continuing without compression`);
   extra.push(...codexProviderOverrides(resumed, up, base, codexApiKeyAuth(env)));
   return run(env.TOONARROW_CODEX_BIN ?? resolveClientBin('codex'), [...extra, ...args], env);
 }

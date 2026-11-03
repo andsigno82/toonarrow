@@ -162,7 +162,7 @@ usage:
   toonarrow skills [--min N] [--write]    rank skills by use (OpenCode, Claude Code, Kora); --write keeps descriptions only for those
   toonarrow mcp                           MCP stdio server with the Search and Edit tools
   toonarrow claude [args]                 run Claude Code through toonarrow (proxy, MCP tools, native file tools gated)
-  toonarrow codex [args]                  run Codex through toonarrow (proxy, MCP tools)
+  toonarrow codex [--toonarrow-tools] [args] run Codex through toonarrow (proxy, short-answer rule; --toonarrow-tools adds the Search/Edit MCP tools)
   toonarrow opencode [--toonarrow-tools] [args] run OpenCode through toonarrow (private server + proxy; --toonarrow-tools swaps native file tools for toonarrow_Search/toonarrow_Edit)
   toonarrow kora [args]                   run the Kora CLI through toonarrow (KORA_LLM_PROXY)
                                      claude/codex/opencode add a short-answers rule to the system prompt; --toonarrow-no-brief leaves it out

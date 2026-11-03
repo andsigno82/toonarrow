@@ -4,7 +4,8 @@ import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chmodSync } from 'node:fs';
-import { codexApiKeyAuth, codexProviderOverrides, codexResumeProvider, opencodeConfig, opencodeOpenaiAuth, preToolUseHook, resolveClientBin, shimScript, splitLauncherFlags, withShimPathBlock } from '../src/launch.ts';
+import { codexDeveloperInstructions, tomlDeveloperInstructions } from '../src/codex-config.ts';
+import { codexApiKeyAuth, codexGuidanceOverrides, codexProviderOverrides, codexResumeProvider, opencodeConfig, opencodeOpenaiAuth, preToolUseHook, resolveClientBin, shimScript, splitLauncherFlags, withShimPathBlock } from '../src/launch.ts';
 
 test('shim PATH block in the shell rc is idempotent and removable', () => {
   const rc = 'export FOO=1\nalias ll="ls -l"\n';
@@ -155,4 +156,43 @@ test('hook denies native file tools and names the replacement', async () => {
   assert.match(write.hookSpecificOutput.permissionDecisionReason, /mcp__toonarrow__Edit/);
   assert.equal(await preToolUseHook(JSON.stringify({ tool_name: 'Bash' }), env), '');
   assert.equal(await preToolUseHook('not json', env), '');
+});
+
+test('codex config: developer_instructions read from every TOML string form, tables and profiles', () => {
+  assert.deepEqual(tomlDeveloperInstructions('model = "x"\ndeveloper_instructions = "Be \\"brief\\".\\nAlways."\n[profiles.a]\ndeveloper_instructions = \'raw \\n\'\n'), { found: true, value: 'Be "brief".\nAlways.' });
+  assert.deepEqual(tomlDeveloperInstructions('[profiles.a]\ndeveloper_instructions = \'raw \\n\'\n', 'profiles.a'), { found: true, value: 'raw \\n' });
+  assert.deepEqual(tomlDeveloperInstructions('developer_instructions = """\nline one\nline \\\n    two"""\n'), { found: true, value: 'line one\nline two' });
+  assert.deepEqual(tomlDeveloperInstructions("developer_instructions = '''\nkeep \\n as is'''\n"), { found: true, value: 'keep \\n as is' });
+  assert.deepEqual(tomlDeveloperInstructions('[mcp]\ndeveloper_instructions = "not top level"\n'), { found: false });
+  assert.deepEqual(tomlDeveloperInstructions('developer_instructions = ["not", "a string"]\n'), { found: true });
+
+  const home = mkdtempSync(join(tmpdir(), 'toonarrow-codex-'));
+  const repo = mkdtempSync(join(tmpdir(), 'toonarrow-repo-'));
+  const env = { CODEX_HOME: home };
+  assert.deepEqual(codexDeveloperInstructions([], env, repo), {});
+  writeFileSync(join(home, 'config.toml'), 'developer_instructions = "user level"\n[profiles.fast]\ndeveloper_instructions = "fast profile"\n');
+  assert.deepEqual(codexDeveloperInstructions([], env, repo), { value: 'user level' });
+  assert.deepEqual(codexDeveloperInstructions(['-p', 'fast'], env, repo), { value: 'fast profile' });
+  mkdirSync(join(repo, '.codex'));
+  mkdirSync(join(repo, 'sub'));
+  writeFileSync(join(repo, '.codex', 'config.toml'), 'developer_instructions = "project level"\n');
+  assert.deepEqual(codexDeveloperInstructions([], env, join(repo, 'sub')), { value: 'project level' });
+  writeFileSync(join(repo, '.codex', 'config.toml'), 'developer_instructions = 42\n');
+  assert.deepEqual(codexDeveloperInstructions([], env, repo), { unreadable: join(repo, '.codex', 'config.toml') });
+});
+
+test('codex launcher: guidance is appended to the configured developer_instructions, MCP tools only on request', () => {
+  const brief = codexGuidanceOverrides(false, true, { value: 'Mine.' });
+  assert.equal(brief.args.length, 2);
+  assert.ok(brief.args[1]!.startsWith('developer_instructions="Mine.\\n\\nResponse length (toonarrow):'));
+  assert.ok(!brief.args.join(' ').includes('mcp_servers'), 'no MCP server by default');
+  const none = codexGuidanceOverrides(false, true, {});
+  assert.ok(none.args[1]!.startsWith('developer_instructions="Response length (toonarrow):'));
+  const tools = codexGuidanceOverrides(true, false, {});
+  assert.ok(tools.args[1]!.startsWith('mcp_servers.toonarrow={command='));
+  assert.ok(tools.args[3]!.includes('tools.mcp__toonarrow__Search') && tools.args[3]!.includes('ALL_TOOLS'));
+  const unreadable = codexGuidanceOverrides(false, true, { unreadable: '/x/config.toml' });
+  assert.deepEqual(unreadable.args, []);
+  assert.match(unreadable.warning!, /not a plain TOML string/);
+  assert.deepEqual(codexGuidanceOverrides(false, false, { value: 'Mine.' }).args, [], 'nothing to add: the config stays in charge');
 });
