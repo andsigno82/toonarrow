@@ -9,7 +9,7 @@ import type { AddressInfo } from 'node:net';
 import { WebSocket, WebSocketServer } from 'ws';
 import { DEFAULT_CONFIG } from '../src/config.ts';
 import type { Config } from '../src/config.ts';
-import { rewriteResponses } from '../src/compress/request.ts';
+import { newResponsesState, rewriteResponses } from '../src/compress/request.ts';
 import { Ledger } from '../src/ledger.ts';
 import type { LedgerEntry } from '../src/ledger.ts';
 import { createProxyServer } from '../src/proxy.ts';
@@ -122,7 +122,9 @@ test('websocket: compresses a tool output whose call came from the server, relay
   rewriteResponses(viaHttp);
   assert.equal(sent, viaHttp.input[1].output[0].text);
   const again = structuredClone(received[2]!);
-  assert.equal(rewriteResponses(again, undefined, new Map([['c1', ['ls -la']]])).bashBlocks, 0);
+  const state = newResponsesState();
+  state.calls.set('c1', [{ cmd: 'ls -la' }]);
+  assert.equal(rewriteResponses(again, undefined, state).bashBlocks, 0);
   assert.deepEqual(again, received[2]);
 
   const entries = await waitForLedger(3);

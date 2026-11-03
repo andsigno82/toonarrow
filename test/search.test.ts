@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { type ResponsesCall, rewriteAnthropic, rewriteChat, rewriteResponses } from '../src/compress/request.ts';
+import { newResponsesState, rewriteAnthropic, rewriteChat, rewriteResponses } from '../src/compress/request.ts';
 import { compressKoraSearch, compressOpencodeGrep } from '../src/compress/search.ts';
 
 const root = '/Users/u/dev/project/';
@@ -98,7 +98,8 @@ test('router: Responses search results (Kora and OpenCode with an OpenAI sign-in
   assert.deepEqual(twice, once, 'second pass is a no-op');
 
   // WebSocket: the call came from the server in an earlier turn, this turn carries only its output.
-  const calls = new Map<string, ResponsesCall>([['k1', { search: 'searchCode' }]]);
+  const calls = newResponsesState();
+  calls.calls.set('k1', { search: 'searchCode' });
   const turn = { input: [{ type: 'function_call_output', call_id: 'k1', output: koraResult() }] };
   assert.equal(rewriteResponses(turn, undefined, calls).toolBlocks, 1);
   assert.equal(turn.input[0]!.output, (once.input[1] as { output: string }).output);

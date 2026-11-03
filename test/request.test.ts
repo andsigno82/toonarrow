@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compressBashOutput } from '../src/compress/shell/index.ts';
-import { rewriteAnthropic, rewriteChat, rewriteResponses } from '../src/compress/request.ts';
+import { newResponsesState, rewriteAnthropic, rewriteChat, rewriteResponses } from '../src/compress/request.ts';
 
 export const LS_OUTPUT = ['total 2048', ...Array.from({ length: 30 }, (_, i) => `-rw-r--r--@  1 andrea  staff  ${1000 + i} 24 set 09:10 file-${i}.ts`)].join('\n');
 
@@ -185,4 +185,82 @@ test('plain chat tool results are compressed whole, even when they contain "Outp
 
 test('ignores bodies without messages', () => {
   assert.deepEqual(rewriteAnthropic({}), { bashBlocks: 0, bashCharsSaved: 0, toolBlocks: 0, toolCharsSaved: 0 });
+});
+
+// Shapes observed from Codex 0.166.0 (gpt-6.1-terra): Promise.allSettled/Promise.all scripts, `const r = ...;
+// text(r.output)`, and calls mixed with other tools (write_stdin, web__run) in one script.
+const execScript = (input: string, parts: string[]) => ({
+  input: [
+    { type: 'custom_tool_call', call_id: 'x1', name: 'exec', input },
+    { type: 'custom_tool_call_output', call_id: 'x1', output: [{ type: 'input_text', text: 'Script completed\nWall time 0.1 seconds\nOutput:\n' }, ...parts.map((text) => ({ type: 'input_text', text }))] },
+  ],
+});
+const settled = (output: string) => JSON.stringify({ status: 'fulfilled', value: { chunk_id: 'c', wall_time_seconds: 0.1, exit_code: 0, output } });
+const outputs = (body: any): string[] => body.input[1].output.slice(1).map((p: any) => p.text);
+
+test('codex: every code-mode script shape Codex 0.166 writes maps each part to its own call', () => {
+  const shapes: Array<[string, string[], (texts: string[]) => void]> = [
+    ['const r = await tools.exec_command({cmd:"ls -la","max_output_tokens":5000}); text(r.output);', [LS_OUTPUT], (t) => assert.ok(t[0]!.includes('[toonarrow ls-long:'))],
+    [
+      'const results = await Promise.allSettled([\ntools.exec_command({cmd:"ls -la src",max_output_tokens:2000}),\ntools.exec_command({cmd:"cat README.md"})\n]); for (const r of results) text(r.status==="fulfilled"?r.value.output:String(r.reason));',
+      [LS_OUTPUT, 'readme\n'.repeat(12)],
+      (t) => {
+        assert.ok(t[0]!.includes('[toonarrow ls-long:'));
+        assert.equal(t[1], 'readme\n'.repeat(12), 'cat output untouched');
+      },
+    ],
+    [
+      'const r = await Promise.allSettled([tools.exec_command({cmd:"ls -la"}),tools.web__run({search_query:[{"q":"x"}]})]); for(const x of r) text(JSON.stringify(x));',
+      [settled(LS_OUTPUT), settled('web results')],
+      (t) => {
+        const first = JSON.parse(t[0]!);
+        assert.equal(first.status, 'fulfilled');
+        assert.ok(first.value.output.includes('[toonarrow ls-long:'), 'nested value.output compressed');
+        assert.equal(t[1], settled('web results'), 'other tools untouched');
+      },
+    ],
+    ['const r = await Promise.all([tools.exec_command({cmd:"ls -la"})]); r.forEach(text);', [execResult(LS_OUTPUT)], (t) => assert.ok(JSON.parse(t[0]!).output.includes('[toonarrow ls-long:'))],
+    ['// @exec: {"yield_time_ms": 1000}\ntext(await tools.write_stdin({session_id:7,chars:""}));\ntext(await tools.exec_command({cmd:"ls -la"}));', ['{"session_id":7,"output":"x"}', execResult(LS_OUTPUT)], (t) => {
+      assert.equal(t[0], '{"session_id":7,"output":"x"}', 'unknown session: untouched');
+      assert.ok(JSON.parse(t[1]!).output.includes('[toonarrow ls-long:'));
+    }],
+  ];
+  for (const [script, parts, check] of shapes) {
+    const body = execScript(script, parts);
+    rewriteResponses(body);
+    check(outputs(body));
+    const again = structuredClone(body);
+    assert.equal(rewriteResponses(again).bashBlocks, 0, `second pass: ${script.slice(0, 40)}`);
+    assert.deepEqual(again, body);
+  }
+});
+
+test('codex: a write_stdin output continues the command running in that exec session, across WebSocket turns', () => {
+  const goOut = Array.from({ length: 30 }, (_, i) => `ok  \texample.com/pkg${i}\t0.0${i % 10}s`).join('\n');
+  const state = newResponsesState();
+  // Turn 1: go test still running, the exec result carries its session id.
+  const first = execScript('const r = await tools.exec_command({cmd:"go test ./...",yield_time_ms:1000}); text(JSON.stringify(r));', [JSON.stringify({ chunk_id: 'a', session_id: 27856, output: '' })]);
+  rewriteResponses(first, undefined, state);
+  // Turn 2 (only new items, as over a WebSocket): the poll returns the test output.
+  const poll = execScript('const r = await tools.write_stdin({session_id:27856,chars:"",yield_time_ms:1000}); text(JSON.stringify(r));', [JSON.stringify({ chunk_id: 'b', session_id: 27856, exit_code: 0, output: goOut })]);
+  rewriteResponses({ input: [poll.input[0]] }, undefined, state);
+  const output = { input: [poll.input[1]] };
+  assert.equal(rewriteResponses(output, undefined, state).bashBlocks, 1);
+  assert.ok(JSON.parse((output.input[0] as any).output[1].text).output.startsWith('go test: 30 packages ok'));
+});
+
+test('codex: scripts outside the known shapes, or parts that do not line up, pass through', () => {
+  const cases: Array<[string, string[]]> = [
+    ['text(ALL_TOOLS.filter(x=>/github/.test(x.name)).map(x=>x.name));', ['["a"]']],
+    ['const r = await tools.exec_command({cmd:"ls -la"}); text(r.output.slice(0, 10));', [LS_OUTPUT]],
+    ['const r = await Promise.allSettled([tools.exec_command({cmd:"ls -la"}),tools.exec_command({cmd:"ls -la"})]); for (const x of r) text(x.value.output.trim());', [LS_OUTPUT, LS_OUTPUT]],
+    ['const r = await Promise.allSettled([tools.exec_command({cmd:"ls -la"}),tools.exec_command({cmd:"ls -la"})]); for (const x of r) text(JSON.stringify(x));', ['Warning: truncated output (original token count: 15129)\n' + LS_OUTPUT]],
+    ['text(await tools.exec_command({cmd:`ls ${dir}`}));', [LS_OUTPUT]],
+  ];
+  for (const [script, parts] of cases) {
+    const body = execScript(script, parts);
+    const before = structuredClone(body);
+    assert.equal(rewriteResponses(body).bashBlocks, 0, script);
+    assert.deepEqual(body, before);
+  }
 });

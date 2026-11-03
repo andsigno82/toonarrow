@@ -2,7 +2,7 @@ import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type { RawData, WebSocket } from 'ws';
 import type { Config } from './config.ts';
-import { type ResponsesCall, responsesCall, rewrote } from './compress/request.ts';
+import { newResponsesState, responsesCall, rewrote } from './compress/request.ts';
 import { type ProxyErrorKind, proxyError } from './errors.ts';
 import type { Ledger, LedgerEntry } from './ledger.ts';
 import { bodyShape, redactHeaders, requestMeta } from './meta.ts';
@@ -123,7 +123,7 @@ interface Turn {
 
 function relay(ctx: SocketContext, req: IncomingMessage, client: WebSocket, up: WebSocket, upstream: string, target: URL): void {
   const wire = 'openai-responses';
-  const calls = new Map<string, ResponsesCall>();
+  const state = newResponsesState();
   const turns: Turn[] = [];
 
   const finish = (turn: Turn, patch: Partial<LedgerEntry>): void => {
@@ -140,7 +140,7 @@ function relay(ctx: SocketContext, req: IncomingMessage, client: WebSocket, up: 
     // Blocks already sent in this session keep the bytes they had then, whatever the rules and config are now.
     const memo = meta.sessionKey ? ctx.memo?.for(meta.sessionKey) : undefined;
     const fullCapture = ctx.config.capture === 'full' ? structuredClone(json) : undefined;
-    const { compression, skills, changed } = rewriteRequest(json, wire, ctx.config.compress, ctx.keepSkills, memo, calls);
+    const { compression, skills, changed } = rewriteRequest(json, wire, ctx.config.compress, ctx.keepSkills, memo, state);
     const sent = changed ? JSON.stringify(json) : raw!;
     up.send(sent);
 
@@ -175,7 +175,7 @@ function relay(ctx: SocketContext, req: IncomingMessage, client: WebSocket, up: 
     if (!ev) return;
     if (ev.type === 'response.output_item.done' && ev.item && typeof ev.item.call_id === 'string') {
       const call = responsesCall(ev.item);
-      if (call) calls.set(ev.item.call_id, call);
+      if (call) state.calls.set(ev.item.call_id, call);
       return;
     }
     if (!END_EVENTS.has(ev.type)) return;

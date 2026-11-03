@@ -107,6 +107,47 @@ export function editTopLevelStrings(text: string, keys: readonly string[], edit:
   return out;
 }
 
+/**
+ * Applies `edit` to the raw text of a top-level object field (`{"status": ..., "value": {...}}` -> the `value`
+ * object) and splices the result back, every other byte unchanged. Undefined when `text` is not a JSON object
+ * or the field is not an object.
+ */
+export function editTopLevelObject(text: string, key: string, edit: (raw: string) => string): string | undefined {
+  let i = skipWs(text, 0);
+  if (text[i] !== '{') return undefined;
+  let span: [number, number] | undefined;
+  i = skipWs(text, i + 1);
+  if (text[i] === '}') return undefined;
+  for (;;) {
+    if (text[i] !== '"') return undefined;
+    const keyEnd = stringEnd(text, i);
+    if (keyEnd < 0) return undefined;
+    let name: string;
+    try {
+      name = JSON.parse(text.slice(i, keyEnd)) as string;
+    } catch {
+      return undefined;
+    }
+    i = skipWs(text, keyEnd);
+    if (text[i] !== ':') return undefined;
+    i = skipWs(text, i + 1);
+    const end = valueEnd(text, i);
+    if (end < 0) return undefined;
+    if (name === key) span = text[i] === '{' ? [i, end] : undefined;
+    i = skipWs(text, end);
+    if (text[i] === ',') {
+      i = skipWs(text, i + 1);
+      continue;
+    }
+    if (text[i] !== '}' || skipWs(text, i + 1) !== text.length) return undefined;
+    break;
+  }
+  if (!span) return undefined;
+  const inner = text.slice(span[0], span[1]);
+  const next = edit(inner);
+  return next === inner ? text : text.slice(0, span[0]) + next + text.slice(span[1]);
+}
+
 /** Removes whitespace outside strings: lossless for JSON; undefined when `text` is not valid JSON. */
 export function minifyJson(text: string): string | undefined {
   try {
