@@ -125,7 +125,7 @@ footer.bottom { margin-top: 96px; padding: 28px 0 40px; border-top: 1px solid va
       <code id="cmd">npm install -g toonarrow &amp;&amp; toonarrow install</code>
       <button type="button" id="copy">Copy</button>
     </div>
-    <p class="after-install">macOS, Node.js 24 or later. Open-source under Apache-2.0, no account.</p>
+    <p class="after-install">macOS or Linux, Node.js 24 or later. Open-source under Apache-2.0, no account.</p>
   </div>
   <blockquote class="note quote">
     <p>“I have discovered a truly marvelous proof of this, which this margin is too narrow to contain.”</p>
@@ -159,16 +159,16 @@ footer.bottom { margin-top: 96px; padding: 28px 0 40px; border-top: 1px solid va
     <h2>What it trims</h2>
     <dl class="features">
       <dt>Shell output</dt>
-      <dd>Per-command rules for <code>ls -l</code>, <code>git log</code>, <code>grep</code>, <code>tsc</code>, test runners, package installs and more. Pipes and <code>&amp;&amp;</code> chains are left alone, and every trimmed output tells the model how to get the raw one.</dd>
+      <dd>Per-command rules for <code>ls -l</code>, <code>git log</code>, <code>grep</code>, <code>tsc</code>, test runners, package installs and more, applied only where the command behind the output is certain (also after <code>cd dir &amp;&amp;</code> or before <code>| head</code>, and inside Codex's exec scripts). Every trimmed output tells the model how to get the raw one.</dd>
       <dt>Skill listings</dt>
-      <dd>Skills you actually use keep their description; the rest are listed by name and still load on demand. <code>toonarrow skills --write</code> picks them from your own history.</dd>
+      <dd>Codex's listing is regrouped by skill root without losing a path. On request, the skills you actually use keep their description and the rest are listed by name, still loading on demand; <code>toonarrow skills --write</code> picks them from your own history.</dd>
       <dt>File tools</dt>
-      <dd>An MCP server with <code>Search</code>, which reads several files per call and folds grep results, and <code>Edit</code>, which applies batched edits atomically.</dd>
+      <dd>An MCP server with <code>Search</code>, which reads several files per call and folds grep results, and <code>Edit</code>, which applies batched edits atomically. On by default with Claude Code, opt-in for OpenCode and Codex.</dd>
       <dt>Long answers</dt>
       <dd>A short-answer rule added to the main agent's system prompt.</dd>
     </dl>
   </section>
-  <p class="note">A local dashboard and <code>toonarrow stats</code> show what was saved, in tokens, per day, session, model and client.</p>
+  <p class="note">A local dashboard and <code>toonarrow stats</code> show what was saved, in tokens, per day, session, model and client. <code>toonarrow estimate</code> replays your own local history offline, so you can see the saving before routing any traffic.</p>
 
   <section>
     <h2>Nothing else changes</h2>
