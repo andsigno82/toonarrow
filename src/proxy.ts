@@ -6,16 +6,16 @@ import type { IncomingHttpHeaders, IncomingMessage, OutgoingHttpHeaders, ServerR
 import type { Config } from './config.ts';
 import type { Ledger, LedgerEntry } from './ledger.ts';
 import { bodyShape, parseRequestJson, redactHeaders, requestMeta } from './meta.ts';
-import { rewriteAnthropic, rewriteChat, rewriteResponses, rewrote } from './compress/request.ts';
-import type { RewriteStats } from './compress/request.ts';
-import { rewriteSkills } from './compress/skills.ts';
+import { rewrote } from './compress/request.ts';
 import type { SessionMemoStore } from './session-memo.ts';
-import type { SkillStats } from './compress/skills.ts';
 import { DASHBOARD_HTML } from './dashboard.ts';
+import { type ProxyErrorKind, proxyError } from './errors.ts';
+import { rewriteRequest } from './rewrite.ts';
 import { summarize } from './report.ts';
 import { createCollector } from './usage.ts';
 import type { CollectedUsage, UsageCollector } from './usage.ts';
 import { detectWire } from './wire.ts';
+import { refuseUpgrade, relayResponsesSocket } from './ws.ts';
 
 export const VERSION = '0.1.1';
 
@@ -54,13 +54,7 @@ function sendJson(res: ServerResponse, status: number, body: unknown, headers: O
 }
 
 /** Routes this build serves, announced by /_toonarrow/health so clients can tell an older toonarrow apart. */
-export const FEATURES = ['via'];
-
-/**
- * Errors produced by toonarrow itself carry `x-toonarrow-error`: `route` means nothing was forwarded (unknown upstream
- * or path), so a client may safely resend the request directly; `upstream` and `internal` may have been forwarded.
- */
-type ProxyErrorKind = 'route' | 'upstream' | 'internal';
+export const FEATURES = ['via', 'responses-websocket'];
 
 function sendProxyError(res: ServerResponse, status: number, kind: ProxyErrorKind, message: string): void {
   sendJson(res, status, proxyError(message), { 'x-toonarrow-error': kind });
@@ -70,8 +64,6 @@ const CAPTURE_TAIL_BYTES = 32 * 1024;
 
 /** A 2xx stream that carried an error event (e.g. a gateway 429 relayed inside the stream) failed all the same. */
 const streamErrorText = (message: string): string => `stream error: ${message}`;
-
-const proxyError = (message: string) => ({ type: 'error', error: { type: 'toonarrow_proxy_error', message } });
 
 /**
  * Splits "/<upstream>/<rest>" into the upstream name and the target URL. "/_via/<scheme>/<host>/<rest>" carries
@@ -142,16 +134,9 @@ export function createProxyServer(opts: ProxyOptions): http.Server {
     const fullCapture = opts.config.capture === 'full' && json ? structuredClone(json) : undefined;
     // Blocks already sent in this session keep the bytes they had then, whatever the rules and config are now.
     const memo = json && meta.sessionKey ? opts.memo?.for(meta.sessionKey) : undefined;
-    let compression: RewriteStats | undefined;
-    if (json && opts.config.compress.bash) {
-      if (wire === 'anthropic-messages') compression = rewriteAnthropic(json, memo);
-      else if (wire === 'openai-responses') compression = rewriteResponses(json, memo);
-      else if (wire === 'openai-chat') compression = rewriteChat(json, memo);
-    }
-    const skills: SkillStats | undefined =
-      json && opts.config.compress.skills ? rewriteSkills(json, wire, memo ? memo.keepSkills(keepSkills) : keepSkills) : undefined;
+    const { compression, skills, changed } = json ? rewriteRequest(json, wire, opts.config.compress, keepSkills, memo) : { changed: false };
     // Only re-serialize when something changed; the body is then sent uncompressed.
-    const body = rewrote(compression) || skills?.skillsHidden ? Buffer.from(JSON.stringify(json)) : original;
+    const body = changed ? Buffer.from(JSON.stringify(json)) : original;
     if (body !== original) delete headers['content-encoding'];
     // Identity responses keep the usage collector able to read the bytes it tees.
     headers['accept-encoding'] = 'identity';
@@ -251,11 +236,28 @@ export function createProxyServer(opts: ProxyOptions): http.Server {
     upReq.end(body);
   }
 
-  return http.createServer((req, res) => {
+  const server = http.createServer((req, res) => {
     handle(req, res).catch((err: Error) => {
       log(`request failed: ${err.stack ?? err}`);
       if (!res.headersSent) sendProxyError(res, 500, 'internal', err.message);
       else res.destroy(err);
     });
   });
+
+  // WebSocket upgrades: only the Responses API (Codex) is relayed; anything else is told to use HTTPS.
+  const socketContext = { config: opts.config, ledger: opts.ledger, memo: opts.memo, keepSkills, capture, log };
+  server.on('upgrade', (req: IncomingMessage, socket, head: Buffer) => {
+    socket.on('error', (err) => log(`websocket client socket: ${err.message}`));
+    const rawUrl = req.url ?? '/';
+    const resolved = rawUrl.startsWith('/_toonarrow') ? undefined : resolveTarget(opts.config, rawUrl);
+    if (!resolved) return refuseUpgrade(socket, 404, 'route', `unknown upstream in path: ${rawUrl.split('?')[0]}`);
+    if (req.headers.upgrade?.toLowerCase() !== 'websocket' || detectWire(resolved.target.pathname) !== 'openai-responses') {
+      return refuseUpgrade(socket, 426, 'route', 'toonarrow relays websockets for the Responses API only, use HTTPS');
+    }
+    relayResponsesSocket(socketContext, req, socket, head, resolved.upstream, resolved.target).catch((err: Error) => {
+      log(`websocket failed: ${err.stack ?? err}`);
+      refuseUpgrade(socket, 500, 'internal', err.message);
+    });
+  });
+  return server;
 }

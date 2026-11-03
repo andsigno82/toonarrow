@@ -16,6 +16,8 @@ export interface LedgerEntry {
   requestBytes: number;
   /** Size of the body actually forwarded, when toonarrow rewrote it. */
   sentBytes?: number;
+  /** Set for turns relayed over a Responses API WebSocket (method `WS`); absent for HTTP. */
+  transport?: 'websocket';
   model?: string;
   stream?: boolean;
   sessionKey?: string;
