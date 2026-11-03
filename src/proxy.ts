@@ -17,7 +17,7 @@ import type { CollectedUsage, UsageCollector } from './usage.ts';
 import { detectWire } from './wire.ts';
 import { refuseUpgrade, relayResponsesSocket } from './ws.ts';
 
-export const VERSION = '0.1.1';
+export const VERSION = '0.2.0';
 
 export interface ProxyOptions {
   config: Config;
