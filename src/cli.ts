@@ -157,7 +157,7 @@ usage:
   toonarrow status                        health check of the running proxy
   toonarrow stats [--days N] [--by day|model|session|upstream|client]
   toonarrow dashboard                     open the local dashboard (served by the running proxy at /_toonarrow/)
-  toonarrow install | uninstall           launchd daemon, ~/.local/bin/toonarrow wrapper, client shims (claude, codex, opencode, kora)
+  toonarrow install | uninstall           background service (launchd on macOS, systemd --user on Linux), ~/.local/bin/toonarrow wrapper, client shims (claude, codex, opencode, kora)
   toonarrow env <claude|codex|opencode|kora>
   toonarrow skills [--min N] [--write]    rank skills by use (OpenCode, Claude Code, Kora); --write keeps descriptions only for those
   toonarrow mcp                           MCP stdio server with the Search and Edit tools

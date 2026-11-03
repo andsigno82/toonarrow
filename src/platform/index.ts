@@ -1,4 +1,5 @@
 import { darwin } from './darwin.ts';
+import { linux } from './linux.ts';
 import { unsupported } from './unsupported.ts';
 
 /** How the wrapper, shims and service run toonarrow: the node binary and the CLI entry point. */
@@ -35,5 +36,7 @@ export interface Platform {
 }
 
 export function currentPlatform(platform: NodeJS.Platform = process.platform): Platform {
-  return platform === 'darwin' ? darwin : unsupported(platform);
+  if (platform === 'darwin') return darwin;
+  if (platform === 'linux') return linux;
+  return unsupported(platform);
 }

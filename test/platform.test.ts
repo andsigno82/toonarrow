@@ -1,29 +1,52 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { launchdPlist } from '../src/platform/darwin.ts';
+import { linuxShellRc, systemdUnit } from '../src/platform/linux.ts';
 import { wrapperScript } from '../src/platform/posix.ts';
 import { currentPlatform } from '../src/platform/index.ts';
 import { envWithPath } from '../src/launch.ts';
 
 const cmd = { execPath: '/opt/node/bin/node', cliPath: '/opt/toonarrow/src/cli.ts' };
 
-test('linux and win32: service and rc methods fail with a clear error; linux shares the POSIX shims', () => {
-  for (const platform of ['linux', 'win32'] as const) {
-    const p = currentPlatform(platform);
-    const message = `toonarrow install is not supported on ${platform} yet`;
-    assert.throws(() => p.installService(cmd, '/logs'), { message });
-    assert.throws(() => p.removeService(), { message });
-    assert.throws(() => p.wrapperPath(), { message });
-    assert.throws(() => p.shellRc(), { message });
-    if (platform === 'win32') {
-      assert.throws(() => p.wrapperScript(cmd), { message });
-      assert.throws(() => p.withShimPathBlock('', true, '/h/bin'), { message });
-      assert.throws(() => p.shimScript('kora', cmd), { message });
-    } else {
-      assert.equal(p.shimScript('kora', cmd), currentPlatform('darwin').shimScript('kora', cmd));
-      assert.equal(p.withShimPathBlock('', true, '/h/bin'), currentPlatform('darwin').withShimPathBlock('', true, '/h/bin'));
-    }
-  }
+test('win32: service and rc methods fail with a clear error', () => {
+  const p = currentPlatform('win32');
+  const message = 'toonarrow install is not supported on win32 yet';
+  assert.throws(() => p.installService(cmd, '/logs'), { message });
+  assert.throws(() => p.removeService(), { message });
+  assert.throws(() => p.wrapperPath(), { message });
+  assert.throws(() => p.shellRc(), { message });
+  assert.throws(() => p.wrapperScript(cmd), { message });
+  assert.throws(() => p.withShimPathBlock('', true, '/h/bin'), { message });
+  assert.throws(() => p.shimScript('kora', cmd), { message });
+});
+
+test('linux: systemd user unit, rc file of the login shell, POSIX shims shared with macOS', () => {
+  const p = currentPlatform('linux');
+  assert.equal(p.shimScript('kora', cmd), currentPlatform('darwin').shimScript('kora', cmd));
+  assert.equal(p.withShimPathBlock('', true, '/h/bin'), currentPlatform('darwin').withShimPathBlock('', true, '/h/bin'));
+  assert.equal(
+    systemdUnit({ execPath: '/opt/node 24/bin/node', cliPath: '/opt/toonarrow/src/cli.ts' }, '/home/u/.toonarrow/logs%x'),
+    [
+      '[Unit]',
+      'Description=toonarrow local context-compression proxy',
+      'After=network.target',
+      '',
+      '[Service]',
+      'ExecStart="/opt/node 24/bin/node" "--disable-warning=ExperimentalWarning" "/opt/toonarrow/src/cli.ts" "serve"',
+      'Restart=always',
+      'RestartSec=2',
+      'StandardOutput=append:/home/u/.toonarrow/logs%%x/toonarrow.out.log',
+      'StandardError=append:/home/u/.toonarrow/logs%%x/toonarrow.err.log',
+      '',
+      '[Install]',
+      'WantedBy=default.target',
+      '',
+    ].join('\n'),
+  );
+  assert.equal(linuxShellRc('/usr/bin/zsh', '/home/u', undefined), '/home/u/.zshrc');
+  assert.equal(linuxShellRc('/usr/bin/zsh', '/home/u', '/home/u/.config/zsh'), '/home/u/.config/zsh/.zshrc');
+  assert.equal(linuxShellRc('/bin/bash', '/home/u'), '/home/u/.bashrc');
+  assert.equal(linuxShellRc('/usr/bin/fish', '/home/u'), '/home/u/.profile');
 });
 
 test('darwin service, wrapper, shim and rc text keep the bytes of the pre-refactor output', () => {

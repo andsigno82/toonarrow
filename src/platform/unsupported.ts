@@ -2,9 +2,9 @@ import type { Platform } from './index.ts';
 import { resolveExecutable, shimScript, withShimPathBlock, wrapperScript } from './posix.ts';
 
 /**
- * Platforms without a service and rc implementation yet. Install and dashboard fail with a clear message.
- * Linux already shares the POSIX wrapper, shims and PATH block with macOS; executable lookup works everywhere,
- * since the launchers use it on every platform.
+ * Platforms without a service and rc implementation (Windows and other non-macOS, non-Linux systems). Install
+ * and dashboard fail with a clear message; executable lookup works everywhere, since the launchers use it on
+ * every platform.
  */
 export function unsupported(platform: NodeJS.Platform): Platform {
   const install = (): never => {
