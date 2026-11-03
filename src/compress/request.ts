@@ -99,6 +99,17 @@ export function codexCommands(item: Json): string[] | undefined {
   return undefined;
 }
 
+/** A Responses API tool call whose output toonarrow rewrites: shell commands in output order, or a search tool's name. */
+export type ResponsesCall = string[] | { search: string };
+
+/** Shell calls as in `codexCommands`; also `function_call`s to a search tool (OpenCode `grep`, Kora `searchCode`). */
+export function responsesCall(item: Json): ResponsesCall | undefined {
+  const commands = codexCommands(item);
+  if (commands) return commands;
+  const search = item.type === 'function_call' ? searchTool(item.name) : undefined;
+  return search === undefined ? undefined : { search };
+}
+
 /** JSON fields holding command output: Codex `output`; Kora CLI `stdout` and `stderr`. */
 const OUTPUT_FIELDS = ['output', 'stdout', 'stderr'];
 
@@ -122,22 +133,31 @@ function compressResponsesText(ctx: Ctx, command: string, text: string): string 
 /**
  * Codex (Responses API, store=false so the whole history is resent): shell calls are
  * `custom_tool_call` exec scripts or `function_call` exec_command/shell, answered by the
- * matching *_output item with the same call_id.
+ * matching *_output item with the same call_id. OpenCode and Kora CLI with an OpenAI sign-in use the same wire:
+ * their shell and search tools are `function_call`s. Over a WebSocket a turn sends only new input, so the
+ * call came from the server earlier: `calls` holds those, and gains the calls found in this body.
  */
-export function rewriteResponses(body: Json, memo?: Memo): RewriteStats {
+export function rewriteResponses(body: Json, memo?: Memo, calls?: Map<string, ResponsesCall>): RewriteStats {
   const stats = emptyStats();
   const ctx: Ctx = { stats, memo };
   if (!Array.isArray(body.input)) return stats;
-  const commands = new Map<string, string[]>();
+  const known = calls ?? new Map<string, ResponsesCall>();
   for (const item of body.input) {
     if (!item || typeof item !== 'object') continue;
-    const calls = codexCommands(item);
-    if (calls !== undefined && typeof item.call_id === 'string') {
-      commands.set(item.call_id, calls);
+    const call = responsesCall(item);
+    if (call !== undefined && typeof item.call_id === 'string') {
+      known.set(item.call_id, call);
       continue;
     }
-    if ((item.type !== 'custom_tool_call_output' && item.type !== 'function_call_output') || !commands.has(item.call_id)) continue;
-    const cmds = commands.get(item.call_id)!;
+    if ((item.type !== 'custom_tool_call_output' && item.type !== 'function_call_output') || !known.has(item.call_id)) continue;
+    const cmds = known.get(item.call_id)!;
+    if (!Array.isArray(cmds)) {
+      if (typeof item.output === 'string') item.output = compressSearchInto(ctx, cmds.search, item.output);
+      else if (Array.isArray(item.output) && item.output.length === 1 && item.output[0]?.type === 'input_text' && typeof item.output[0].text === 'string') {
+        item.output[0].text = compressSearchInto(ctx, cmds.search, item.output[0].text);
+      }
+      continue;
+    }
     if (typeof item.output === 'string') {
       if (cmds.length === 1) item.output = compressResponsesText(ctx, cmds[0]!, item.output);
     } else if (Array.isArray(item.output)) {

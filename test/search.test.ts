@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rewriteAnthropic, rewriteChat } from '../src/compress/request.ts';
+import { type ResponsesCall, rewriteAnthropic, rewriteChat, rewriteResponses } from '../src/compress/request.ts';
 import { compressKoraSearch, compressOpencodeGrep } from '../src/compress/search.ts';
 
 const root = '/Users/u/dev/project/';
@@ -74,4 +74,32 @@ test('router: chat tool results of searchCode and Anthropic grep results are rew
   const failed = anthropic(true);
   assert.equal(rewriteAnthropic(failed).toolBlocks, 0);
   assert.equal((failed.messages[1]!.content[0] as { content: string }).content, grepOutput);
+});
+
+test('router: Responses search results (Kora and OpenCode with an OpenAI sign-in) are rewritten, also across WebSocket turns', () => {
+  const body = () => ({
+    input: [
+      { type: 'function_call', call_id: 'k1', name: 'searchCode', arguments: '{"pattern":"call"}' },
+      { type: 'function_call_output', call_id: 'k1', output: koraResult() },
+      { type: 'function_call', call_id: 'g1', name: 'grep', arguments: '{"pattern":"useThing"}' },
+      { type: 'function_call_output', call_id: 'g1', output: [{ type: 'input_text', text: grepOutput }] },
+      { type: 'function_call', call_id: 'r1', name: 'read', arguments: '{"path":"a.ts"}' },
+      { type: 'function_call_output', call_id: 'r1', output: grepOutput },
+    ],
+  });
+  const once = body();
+  const s = rewriteResponses(once);
+  assert.equal(s.toolBlocks, 2);
+  assert.ok((once.input[1] as { output: string }).output.startsWith('searchCode: 12 results'));
+  assert.equal((once.input[3] as { output: { text: string }[] }).output[0]!.text, compressOpencodeGrep(grepOutput));
+  assert.equal((once.input[5] as { output: string }).output, grepOutput, 'other tools are left alone');
+  const twice = structuredClone(once);
+  assert.equal(rewriteResponses(twice).toolBlocks, 0);
+  assert.deepEqual(twice, once, 'second pass is a no-op');
+
+  // WebSocket: the call came from the server in an earlier turn, this turn carries only its output.
+  const calls = new Map<string, ResponsesCall>([['k1', { search: 'searchCode' }]]);
+  const turn = { input: [{ type: 'function_call_output', call_id: 'k1', output: koraResult() }] };
+  assert.equal(rewriteResponses(turn, undefined, calls).toolBlocks, 1);
+  assert.equal(turn.input[0]!.output, (once.input[1] as { output: string }).output);
 });
